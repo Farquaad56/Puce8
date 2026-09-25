@@ -165,13 +165,13 @@ mod tests {
     }
 
     #[test]
-    fn create_mapper_nestest() {
+    fn vrai_nestest() {
         let path = concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../tests/roms/other/nestest.nes"
         );
         let Ok(data) = std::fs::read(path) else {
-            eprintln!("create_mapper_nestest ignoré : {path} absent");
+            eprintln!("vrai_nestest ignoré : {path} absent");
             return;
         };
         let cart = Cartridge::from_bytes(&data).unwrap();
