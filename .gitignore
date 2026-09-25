@@ -1,0 +1,4 @@
+target/
+tests/roms/
+out/
+*.sav

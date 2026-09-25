@@ -1,0 +1,7 @@
+[package]
+name = "puce8-cli"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+puce8-core = { path = "../puce8-core" }

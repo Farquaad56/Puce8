@@ -1,0 +1,12 @@
+[workspace]
+resolver = "2"
+members = ["crates/puce8-core", "crates/puce8-cli", "crates/puce8-desktop"]
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+
+[profile.release]
+debug = 1          # symboles pour profiler
+[profile.dev]
+opt-level = 1      # les tests ROM restent utilisables en debug
