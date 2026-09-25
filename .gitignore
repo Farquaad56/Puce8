@@ -2,3 +2,4 @@ target/
 tests/roms/
 out/
 *.sav
+.idea/
