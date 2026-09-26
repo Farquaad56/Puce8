@@ -1,5 +1,6 @@
 //! PPU minimale : geometrie 341 x 262, VBlank en (241, 1) (E13a), registres loopy (E15a).
 //! E15b : memoire PPU (tables de motifs, CIRAM, palette) et $2007.
+//! E16a : OAM ($2003/$2004).
 // wiki: PPU_scrolling ; wiki: PPU_masks_and_control
 
 pub mod registers;
@@ -27,6 +28,8 @@ pub struct Ppu {
     pub ciram: [u8; 4096],
     /// Palette : 32 octets ($3F00-$3FFF), valeurs masquees a $3F.
     pub palette: [u8; 32],
+    /// OAM : 256 octets de donnees d'objet (E16a).
+    pub oam: [u8; 256],
 }
 
 impl Default for Ppu {
@@ -48,6 +51,7 @@ impl Ppu {
             read_buffer: 0,
             ciram: [0; 4096],
             palette: [0; 32],
+            oam: [0; 256],
         }
     }
 
@@ -120,6 +124,16 @@ impl Ppu {
         }
     }
 
+    /// Lecture $2004 : oam[oam_addr], masquee a $E3 si oam_addr % 4 == 2 (attributs).
+    fn read_oam(&self) -> u8 {
+        let value = self.oam[usize::from(self.regs.oam_addr)];
+        if self.regs.oam_addr % 4 == 2 {
+            value & 0xE3
+        } else {
+            value
+        }
+    }
+
     /// Index palette d'une adresse $3Fxx (miroirs $3F10/$3F14/$3F18/$3F1C).
     fn palette_index(addr: u16) -> usize {
         match addr & 0x1F {
@@ -149,6 +163,10 @@ impl Ppu {
             mapper.notify_ppu_address(self.regs.v);
             return value;
         }
+        if r == 4 {
+            // $2004 : renvoie oam[oam_addr] sans increment ; masque a $E3 sur les attributs.
+            return self.read_oam();
+        }
         let value = self.regs.read(r as u8, self.vblank);
         if r == 2 {
             self.vblank = false; // $2002 efface VBlank
@@ -168,6 +186,10 @@ impl Ppu {
                 self.palette[Self::palette_index(v)] | (self.regs.io_latch & 0xC0)
             };
         }
+        if r == 4 {
+            // $2004 : oam[oam_addr] sans increment ; masque a $E3 sur les attributs.
+            return self.read_oam();
+        }
         self.regs.peek(r as u8, self.vblank)
     }
 
@@ -181,6 +203,11 @@ impl Ppu {
             self.regs.incr_v();
             mapper.notify_ppu_address(self.regs.v);
             return;
+        }
+        if r == 4 {
+            // $2004 : ecrit oam[oam_addr] puis increment (wrap a 256).
+            self.oam[usize::from(self.regs.oam_addr)] = v;
+            self.regs.oam_addr = self.regs.oam_addr.wrapping_add(1);
         }
         // Deuxieme ecriture $2006 : notifier le mapper avec la nouvelle adresse v.
         let second_2006 = r == 6 && self.regs.w;
@@ -462,6 +489,46 @@ mod tests {
         ppu.regs.v = 0x2400; // n=1 -> aussi page 0 en mirroring horizontal
         ppu.cpu_read_register(0x2007, &mut m);
         assert_eq!(ppu.read_buffer, 0xCD); // $2400 est visible a $2000
+    }
+
+    #[test]
+    fn oam_rw() {
+        let mut ppu = Ppu::new();
+        let mut m = MapperNotif { last: None };
+        ppu.cpu_write_register(0x2003, 0x10, &mut m); // oam_addr = $10
+        assert_eq!(ppu.regs.oam_addr, 0x10);
+        ppu.cpu_write_register(0x2004, 0xAB, &mut m); // oam[$10] = $AB, oam_addr = $11
+        assert_eq!(ppu.oam[0x10], 0xAB);
+        assert_eq!(ppu.regs.oam_addr, 0x11);
+        ppu.cpu_write_register(0x2003, 0x10, &mut m);
+        assert_eq!(ppu.cpu_read_register(0x2004, &mut m), 0xAB); // sans increment
+        assert_eq!(ppu.regs.oam_addr, 0x10);
+    }
+
+    #[test]
+    fn oam_attr_masque() {
+        let mut ppu = Ppu::new();
+        let mut m = MapperNotif { last: None };
+        ppu.cpu_write_register(0x2003, 0x02, &mut m); // index 2 : octet d'attributs
+        ppu.cpu_write_register(0x2004, 0xFF, &mut m); // oam[2] = FF, oam_addr = 3
+        assert_eq!(ppu.oam[2], 0xFF); // ecriture non masquee
+        ppu.cpu_write_register(0x2003, 0x02, &mut m); // retour a l'index 2
+        assert_eq!(ppu.cpu_read_register(0x2004, &mut m), 0xE3); // FF & E3
+    }
+
+    #[test]
+    fn oam_lecture_sans_incr() {
+        let mut ppu = Ppu::new();
+        let mut m = MapperNotif { last: None };
+        ppu.cpu_write_register(0x2003, 0x04, &mut m);
+        ppu.cpu_write_register(0x2004, 0xCD, &mut m); // oam[$04] = $CD, oam_addr = $05
+        ppu.cpu_write_register(0x2004, 0xEF, &mut m); // oam[$05] = $EF, oam_addr = $06
+        assert_eq!(ppu.regs.oam_addr, 0x06);
+        ppu.cpu_write_register(0x2003, 0x05, &mut m);
+        assert_eq!(ppu.cpu_read_register(0x2004, &mut m), 0xEF); // oam[$05]
+        assert_eq!(ppu.regs.oam_addr, 0x05); // lecture sans increment
+        assert_eq!(ppu.cpu_read_register(0x2004, &mut m), 0xEF); // idem
+        assert_eq!(ppu.regs.oam_addr, 0x05);
     }
 
     #[test]

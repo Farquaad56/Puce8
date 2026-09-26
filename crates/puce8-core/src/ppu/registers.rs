@@ -1,6 +1,6 @@
 //! Registres de la PPU vus par le CPU ($2000-$2007).
 //! E13a : $2000, $2001, lecture $2002. E15a : registres internes v, t, x et latch d'open bus.
-//! E15b : increment de v ($2007).
+//! E15b : increment de v ($2007). E16a : oam_addr ($2003) ; $2004 gere par la PPU.
 // wiki: PPU_registers ; wiki: PPU_masks_and_control
 
 /// Registre de controle $2000 (bit 7 = NMI activee) + registres internes v, t, x.
@@ -19,6 +19,8 @@ pub struct Registers {
     pub t: u16,
     /// x : fine X (3 bits).
     pub x: u8,
+    /// $2003 : adresse OAM courante (8 bits, wrap a 256).
+    pub oam_addr: u8,
 }
 
 impl Default for Registers {
@@ -37,10 +39,11 @@ impl Registers {
             v: 0,
             t: 0,
             x: 0,
+            oam_addr: 0,
         }
     }
 
-    /// Ecriture CPU : $2000 -> ctrl + bits 10-11 de t ; $2001 -> mask ;
+    /// Ecriture CPU : $2000 -> ctrl + bits 10-11 de t ; $2001 -> mask ; $2003 -> oam_addr ;
     /// $2005/$2006 -> defilement/adresse (compteur `w`) ; toutes les ecritures -> io_latch.
     pub fn write(&mut self, reg: u8, v: u8) {
         match reg {
@@ -50,6 +53,8 @@ impl Registers {
                 self.t = (self.t & 0xF3FF) | ((u16::from(v & 3)) << 10);
             }
             1 => self.mask = v,
+            // $2003 : adresse OAM ; l'ecriture/lecture $2004 est geree par la PPU (buffer oam).
+            3 => self.oam_addr = v,
             5 if !self.w => {
                 // 1re ecriture $2005 : coarse X (bits 0-4 de t) + fine X.
                 self.t = (self.t & 0xFFE0) | u16::from(v >> 3);
