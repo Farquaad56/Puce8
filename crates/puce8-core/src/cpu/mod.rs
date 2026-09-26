@@ -25,6 +25,9 @@ mod exec;
 #[cfg(test)]
 pub(crate) mod test_bus;
 
+#[cfg(test)]
+pub(crate) mod test_utils;
+
 use micro_op::{Flow, MicroOp};
 use operations::Operation;
 use ported_steps::{ported_steps, RESET_SEQ};

@@ -1,4 +1,4 @@
-//! Exécution des micro-ops et des opérations (E04b : reset, NOP, JAM).
+//! Exécution des micro-ops et des opérations (E04b : reset, NOP, JAM ; E05a : adressage en lecture + LDA).
 
 use super::micro_op::{Flow, MicroOp};
 use super::operations::Operation;
@@ -60,8 +60,92 @@ impl super::Cpu {
                 self.jammed = true;
                 Flow::Done
             }
+            // --- E05a : adressage en lecture (1 accès bus par micro-op) ---
+            MicroOp::ReadImmExec => {
+                let v = bus.read(self.pc);
+                self.pc = self.pc.wrapping_add(1);
+                self.exec_read(self.op, v);
+                Flow::Done
+            }
+            MicroOp::FetchZp | MicroOp::FetchAbsLo => {
+                self.addr = u16::from(bus.read(self.pc));
+                self.pc = self.pc.wrapping_add(1);
+                Flow::Next
+            }
+            MicroOp::DummyReadZpAddX => {
+                let _ = bus.read(self.addr);
+                self.addr = self.addr.wrapping_add(u16::from(self.x)) & 0xFF;
+                Flow::Next
+            }
+            MicroOp::DummyReadZpAddY => {
+                let _ = bus.read(self.addr);
+                self.addr = self.addr.wrapping_add(u16::from(self.y)) & 0xFF;
+                Flow::Next
+            }
+            MicroOp::FetchAbsHi => {
+                let hi = bus.read(self.pc);
+                self.pc = self.pc.wrapping_add(1);
+                self.addr = self.addr.wrapping_add(u16::from(hi) << 8);
+                Flow::Next
+            }
+            MicroOp::FetchAbsHiAddX => self.fetch_abs_hi_add(self.x, bus),
+            MicroOp::FetchAbsHiAddY => self.fetch_abs_hi_add(self.y, bus),
+            MicroOp::FetchPtr => {
+                self.ptr = bus.read(self.pc);
+                self.pc = self.pc.wrapping_add(1);
+                Flow::Next
+            }
+            MicroOp::DummyReadPtrAddX => {
+                let _ = bus.read(u16::from(self.ptr));
+                self.ptr = self.ptr.wrapping_add(self.x);
+                Flow::Next
+            }
+            MicroOp::ReadPtrLo => {
+                self.addr = u16::from(bus.read(u16::from(self.ptr)));
+                Flow::Next
+            }
+            MicroOp::ReadPtrHi => {
+                let hi = bus.read(u16::from(self.ptr.wrapping_add(1)));
+                self.addr = self.addr.wrapping_add(u16::from(hi) << 8);
+                Flow::Next
+            }
+            MicroOp::ReadPtrHiAddY => {
+                let hi = bus.read(u16::from(self.ptr.wrapping_add(1)));
+                let base = (u16::from(hi) << 8) | self.addr;
+                self.base = base;
+                self.addr = base.wrapping_add(u16::from(self.y));
+                self.crossed = (base ^ self.addr) & 0xFF00 != 0;
+                Flow::Next
+            }
+            MicroOp::ReadIndexedPageCheck => {
+                if self.crossed {
+                    // Franchissement de page : cycle de pénalité sur l'adresse non corrigée.
+                    let _ = bus.read((self.base & 0xFF00) | (self.addr & 0xFF));
+                    Flow::Next
+                } else {
+                    let v = bus.read(self.addr);
+                    self.exec_read(self.op, v);
+                    Flow::Done
+                }
+            }
+            MicroOp::ReadExec => {
+                let v = bus.read(self.addr);
+                self.exec_read(self.op, v);
+                Flow::Done
+            }
             other => unimplemented!("{:?}", other),
         }
+    }
+
+    /// FetchAbsHiAddX / AddY : hi = R(PC++) ; base = hi:addr ; addr = base + reg ; crossed.
+    fn fetch_abs_hi_add(&mut self, reg: u8, bus: &mut impl CpuBus) -> Flow {
+        let hi = bus.read(self.pc);
+        self.pc = self.pc.wrapping_add(1);
+        let base = (u16::from(hi) << 8) | self.addr;
+        self.base = base;
+        self.addr = base.wrapping_add(u16::from(reg));
+        self.crossed = (base ^ self.addr) & 0xFF00 != 0;
+        Flow::Next
     }
 
     /// « Quoi » d'une instruction implicite (E04b : NOP seulement).
@@ -72,10 +156,15 @@ impl super::Cpu {
         }
     }
 
-    /// « Quoi » d'une lecture (E05+).
-    #[cfg_attr(not(test), expect(dead_code, reason = "utilisé à partir de E05"))]
-    pub(crate) fn exec_read(&mut self, _op: Operation, _value: u8) {
-        unimplemented!()
+    /// « Quoi » d'une lecture (E05a : sonde LDA).
+    pub(crate) fn exec_read(&mut self, op: Operation, value: u8) {
+        match op {
+            Operation::Lda => {
+                self.a = value;
+                self.set_zn(value);
+            }
+            other => unimplemented!("{:?}", other),
+        }
     }
 
     /// Valeur écrite par l'instruction (E06+).
@@ -108,7 +197,6 @@ impl super::Cpu {
     }
 
     /// Pose N et Z à partir d'un octet.
-    #[cfg_attr(not(test), expect(dead_code, reason = "utilisé à partir de E06"))]
     pub(crate) fn set_zn(&mut self, v: u8) {
         self.set_flag(FLAG_N, v & 0x80 != 0);
         self.set_flag(FLAG_Z, v == 0);
@@ -122,7 +210,7 @@ mod tests {
 
     #[test]
     fn stubs_disponibles() {
-        // Stubs E05/E06/E08 : présents mais pas encore appelés.
+        // exec_read appelé depuis E05a ; exec_write/exec_rmw restent des stubs (E06/E08).
         let _ = (Cpu::exec_read, Cpu::exec_write, Cpu::exec_rmw);
     }
 
