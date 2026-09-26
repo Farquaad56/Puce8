@@ -23,6 +23,9 @@ struct RomEntry {
     hash_attendu: Option<String>,
     #[serde(default)]
     frames: Option<u32>,
+    /// Adresse du resultat pour le protocole blarggF8 (defaut $F8).
+    #[serde(default)]
+    result_addr: Option<u16>,
 }
 
 #[derive(Debug)]
@@ -86,9 +89,10 @@ fn run_entry(entry: &RomEntry, roms_dir: &Path) -> SuiteResult {
             let max = entry.max_frames.unwrap_or(6000);
             harness::run_blargg6000(&mut nes, max)
         }
-        "blarggf8" => {
+        "blarggF8" => {
             let fr = entry.frames.unwrap_or(60);
-            harness::run_blargg_f8(&mut nes, fr)
+            let addr = entry.result_addr.unwrap_or(0xF8);
+            harness::run_blargg_f8(&mut nes, fr, addr)
         }
         _ => {
             return SuiteResult {
@@ -101,15 +105,19 @@ fn run_entry(entry: &RomEntry, roms_dir: &Path) -> SuiteResult {
         }
     };
 
+    let detail = if !result.texte.is_empty() {
+        result.texte.clone()
+    } else if result.resultat != "REUSSI" {
+        format!("code={}", result.code)
+    } else {
+        String::new()
+    };
+
     SuiteResult {
         rom: entry.chemin.clone(),
         protocole: entry.protocole.clone(),
         resultat: result.resultat,
-        detail: if result.texte.is_empty() {
-            String::new()
-        } else {
-            result.texte
-        },
+        detail,
         obligatoire: false, // will be set by caller
     }
 }

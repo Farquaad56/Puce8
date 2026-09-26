@@ -119,7 +119,7 @@ pub fn run_blargg6000(nes: &mut Nes, max_frames: u32) -> Resultat {
     }
 }
 
-pub fn run_blargg_f8(nes: &mut Nes, frames: u32) -> Resultat {
+pub fn run_blargg_f8(nes: &mut Nes, frames: u32, result_addr: u16) -> Resultat {
     let rom = "unknown".to_string(); // caller should set this via wrapper
     let mut total_cycles = 0u64;
 
@@ -129,7 +129,7 @@ pub fn run_blargg_f8(nes: &mut Nes, frames: u32) -> Resultat {
         total_cycles += nes.bus.cpu_cycles - start;
     }
 
-    let code = nes.peek(0x00F8) as i32;
+    let code = nes.peek(result_addr) as i32;
     if code == 1 {
         make_result(&rom, "blarggF8", "REUSSI", 1, "", frames, total_cycles)
     } else {
@@ -292,5 +292,33 @@ mod tests {
         }
         let s = read_c_string(&nes, 0x6010, 10);
         assert_eq!(s, "Hi");
+    }
+
+    #[test]
+    fn test_blargg_f8_custom_addr() {
+        // ROM ecrit son resultat a $F0 (pas $F8) : l'adresse est un parametre.
+        let prg = [
+            0xA9, 0x01, // LDA #$01
+            0x85, 0xF0, // STA $F0
+            0xFF, // BRA +0 (boucle pour toujours)
+        ];
+
+        let rom = build_rom(&prg);
+        let mut nes = Nes::from_rom(&rom).expect("valid ROM");
+        for _ in 0..5 {
+            nes.run_frame();
+        }
+        let r = run_blargg_f8(&mut nes, 5, 0xF0);
+        assert_eq!(r.resultat, "REUSSI");
+        assert_eq!(r.code, 1);
+
+        // A $F8 (valeur jamais ecrite) le resultat est ECHEC code 0.
+        let mut nes = Nes::from_rom(&rom).expect("valid ROM");
+        for _ in 0..5 {
+            nes.run_frame();
+        }
+        let r = run_blargg_f8(&mut nes, 5, 0xF8);
+        assert_eq!(r.resultat, "ECHEC");
+        assert_eq!(r.code, 0);
     }
 }

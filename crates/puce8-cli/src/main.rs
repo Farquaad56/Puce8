@@ -168,7 +168,8 @@ fn do_blarggf8(args: &[String]) {
     }
 
     let mut nes = puce8_core::nes::Nes::from_rom(&bytes).expect("valid ROM");
-    let r = harness::run_blargg_f8(&mut nes, frames);
+    // Adresse par defaut $F8 ; la suite utilise le champ `result_addr` du catalogue.
+    let r = harness::run_blargg_f8(&mut nes, frames, 0xF8);
     println!("{}", serde_json::to_string(&r).unwrap());
     process::exit(r.code);
 }

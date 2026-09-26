@@ -1,5 +1,6 @@
 //! Registres de la PPU vus par le CPU ($2000-$2007).
 //! E13a : $2000, $2001, lecture $2002. E15a : registres internes v, t, x et latch d'open bus.
+//! E15b : increment de v ($2007).
 // wiki: PPU_registers ; wiki: PPU_masks_and_control
 
 /// Registre de controle $2000 (bit 7 = NMI activee) + registres internes v, t, x.
@@ -76,6 +77,12 @@ impl Registers {
         }
         // Toute ecriture dans $2000-$2007 met a jour le latch d'open bus.
         self.io_latch = v;
+    }
+
+    /// v += 1, ou +32 si bit 2 de ctrl pose ($2007) ; wrap a $8000.
+    pub fn incr_v(&mut self) {
+        let step = if self.ctrl & 0x04 != 0 { 32 } else { 1 };
+        self.v = (self.v + step) & 0x7FFF;
     }
 
     /// Lecture CPU : $2002 -> (VBlank << 7) | io_latch & 0x1F, puis `w` = false ; autres -> io_latch.
