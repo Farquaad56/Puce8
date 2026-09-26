@@ -1,4 +1,4 @@
-//! Exécution des micro-ops et des opérations (E04b : reset, NOP, JAM ; E05a : adressage en lecture + LDA ; E05b : écriture/RMW + sondes STA/INC ; E06a : load/store/transferts ; E07a : ADC/SBC/AND/ORA/EOR ; E07b : CMP/CPX/CPY, BIT, INX/INY/DEX/DEY ; E08a : ASL/LSR/ROL/ROR A ; E08b : RMW mémoire + DEC ; E09a : branchements et JMP ; E09b : JSR/RTS/pile/instructions de flags ; E09c : BRK/RTI).
+//! Exécution des micro-ops et des opérations (E04b : reset, NOP, JAM ; E05a : adressage en lecture + LDA ; E05b : écriture/RMW + sondes STA/INC ; E06a : load/store/transferts ; E07a : ADC/SBC/AND/ORA/EOR ; E07b : CMP/CPX/CPY, BIT, INX/INY/DEX/DEY ; E08a : ASL/LSR/ROL/ROR A ; E08b : RMW mémoire + DEC ; E09a : branchements et JMP ; E09b : JSR/RTS/pile/instructions de flags ; E09c : BRK/RTI ; E11a : non officiels RMW/LAX/SAX/NOP).
 
 use super::micro_op::{Flow, MicroOp};
 use super::operations::Operation;
@@ -408,21 +408,29 @@ impl super::Cpu {
                 self.set_flag(FLAG_N, value & 0x80 != 0);
                 self.set_flag(FLAG_V, value & 0x40 != 0);
             }
+            Operation::Lax => {
+                // E11a : A = X = M ; N, Z.
+                self.a = value;
+                self.x = value;
+                self.set_zn(value); // N, Z
+            }
+            Operation::Nop => {} // E11a : NOP avec opérande — la lecture a lieu, aucun effet
             other => unimplemented!("{:?}", other),
         }
     }
 
-    /// Valeur écrite par l'instruction (E05b : STA ; E06a : STX/STY).
+    /// Valeur écrite par l'instruction (E05b : STA ; E06a : STX/STY ; E11a : SAX).
     pub(crate) fn exec_write(&mut self, op: Operation) -> u8 {
         match op {
-            Operation::Sta => self.a, // aucun flag
-            Operation::Stx => self.x, // aucun flag
-            Operation::Sty => self.y, // aucun flag
+            Operation::Sta => self.a,          // aucun flag
+            Operation::Stx => self.x,          // aucun flag
+            Operation::Sty => self.y,          // aucun flag
+            Operation::Sax => self.a & self.x, // E11a : A & X tronqué ; aucun flag
             other => unimplemented!("{:?}", other),
         }
     }
 
-    /// Transformation lecture-modification-écriture (E05b : sonde INC ; E08b : ASL/LSR/ROL/ROR/DEC).
+    /// Transformation lecture-modification-écriture (E05b : sonde INC ; E08b : ASL/LSR/ROL/ROR/DEC ; E11a : SLO/RLA/SRE/RRA/DCP/ISB).
     pub(crate) fn exec_rmw(&mut self, op: Operation, data: u8) -> u8 {
         match op {
             Operation::Asl => self.asl(data),
@@ -437,6 +445,45 @@ impl super::Cpu {
             Operation::Dec => {
                 let v = data.wrapping_sub(1);
                 self.set_zn(v); // N, Z
+                v
+            }
+            Operation::Slo => {
+                // E11a : ASL M ; A |= M ; N, Z (C posé par l'ASL).
+                let v = self.asl(data);
+                self.a |= v;
+                self.set_zn(self.a); // N, Z sur le résultat de l'ORA
+                v
+            }
+            Operation::Rla => {
+                // E11a : ROL M ; A &= M ; N, Z (C posé par le ROL).
+                let v = self.rol(data);
+                self.a &= v;
+                self.set_zn(self.a); // N, Z sur le résultat de l'AND
+                v
+            }
+            Operation::Sre => {
+                // E11a : LSR M ; A ^= M ; N, Z (C posé par le LSR).
+                let v = self.lsr(data);
+                self.a ^= v;
+                self.set_zn(self.a); // N, Z sur le résultat de l'EOR
+                v
+            }
+            Operation::Rra => {
+                // E11a : ROR M ; ADC(M) — la retenue du ROR sert d'entrée à l'ADC.
+                let v = self.ror(data);
+                self.add_with_carry(v);
+                v
+            }
+            Operation::Dcp => {
+                // E11a : M -= 1 ; CMP(A, M) — les flags viennent du CMP, pas du décrément.
+                let v = data.wrapping_sub(1);
+                self.compare(self.a, v);
+                v
+            }
+            Operation::Isb => {
+                // E11a : M += 1 ; SBC(M).
+                let v = data.wrapping_add(1);
+                self.add_with_carry(v ^ 0xFF);
                 v
             }
             other => unimplemented!("{:?}", other),

@@ -760,4 +760,74 @@ mod t1 {
         assert_eq!(ops.len(), 143); // 151 officiels − 8 branchements
         verifier_invariants(&ops);
     }
+
+    // --- E11a : non officiels RMW/LAX/SAX/NOP ---
+
+    #[test]
+    fn lax_zp() {
+        let (cpu, _) = run(&[0xA7, 0x10], |_, bus| bus.load(0x10, &[0x81]));
+        assert_eq!(cpu.a, 0x81);
+        assert_eq!(cpu.x, 0x81);
+        assert!(cpu.flag(FLAG_N));
+        assert!(!cpu.flag(FLAG_Z));
+    }
+
+    #[test]
+    fn sax_zp() {
+        let (_, bus) = run(&[0x87, 0x10], |cpu, _| {
+            cpu.a = 0xF0;
+            cpu.x = 0x3C;
+        });
+        assert_eq!(bus.mem[0x10], 0x30); // A & X
+    }
+
+    #[test]
+    fn dcp() {
+        let (cpu, bus) = run(&[0xC7, 0x10], |cpu, bus| {
+            cpu.a = 5;
+            bus.load(0x10, &[6]);
+        });
+        assert_eq!(bus.mem[0x10], 5); // M -= 1
+        assert!(cpu.flag(FLAG_Z)); // A == M après décrément
+        assert!(cpu.flag(FLAG_C)); // A >= M
+    }
+
+    #[test]
+    fn isb() {
+        let (cpu, bus) = run(&[0xE7, 0x10], |cpu, bus| {
+            cpu.a = 5;
+            cpu.set_flag(FLAG_C, true);
+            bus.load(0x10, &[1]);
+        });
+        assert_eq!(bus.mem[0x10], 2); // M += 1
+        assert_eq!(cpu.a, 3); // SBC(2) : A = 5 - 2 (C = 1 → pas d'emprunt)
+    }
+
+    #[test]
+    fn slo() {
+        let (cpu, bus) = run(&[0x07, 0x10], |cpu, bus| {
+            cpu.a = 1;
+            bus.load(0x10, &[0x80]);
+        });
+        assert_eq!(bus.mem[0x10], 0); // ASL(0x80) = 0
+        assert!(cpu.flag(FLAG_C)); // bit 7 de M posé avant décalage
+        assert_eq!(cpu.a, 1); // A |= 0
+    }
+
+    #[test]
+    fn rra() {
+        let (cpu, bus) = run(&[0x67, 0x10], |cpu, bus| {
+            cpu.a = 1;
+            cpu.set_flag(FLAG_C, false);
+            bus.load(0x10, &[3]);
+        });
+        assert_eq!(bus.mem[0x10], 1); // ROR(3) avec C = 0 → 1 (C' = bit 0 de M)
+        assert_eq!(cpu.a, 3); // ADC : 1 + 1 + retenue du ROR
+    }
+
+    #[test]
+    fn nop_abs_lit() {
+        let (_, bus) = run(&[0x0C, 0x02, 0x20], |_, _| {});
+        assert!(bus.log.contains(&Access::Read(0x2002, 0))); // la lecture a bien lieu
+    }
 }
