@@ -2,6 +2,7 @@
 //! E15b : memoire PPU (tables de motifs, CIRAM, palette) et $2007.
 //! E16a : OAM ($2003/$2004).
 //! E17a : courses VBlank a la lecture $2002 (suppression du drapeau ou de la NMI).
+//! E18b : pipeline des fetchs de fond au point pres (latches NT/AT/motifs, inc/copy de v).
 // wiki: PPU_scrolling ; wiki: PPU_masks_and_control
 
 pub mod background;
@@ -36,6 +37,14 @@ pub struct Ppu {
     pub palette: [u8; 32],
     /// OAM : 256 octets de donnees d'objet (E16a).
     pub oam: [u8; 256],
+    /// Latch du numero de tuile charge en phase 1 (E18b) ; alimente les adresses motif.
+    pub nt_latch: u8,
+    /// Latch des attributs (2 bits) charges en phase 3 (E18b).
+    pub at_latch: u8,
+    /// Latch du motif bas charge en phase 5 (E18b) ; les registres a decalage viennent en E18c.
+    pub pat_lo_latch: u8,
+    /// Latch du motif haut charge en phase 7 (E18b).
+    pub pat_hi_latch: u8,
 }
 
 impl Default for Ppu {
@@ -60,11 +69,15 @@ impl Ppu {
             ciram: [0; 4096],
             palette: [0; 32],
             oam: [0; 256],
+            nt_latch: 0,
+            at_latch: 0,
+            pat_lo_latch: 0,
+            pat_hi_latch: 0,
         }
     }
 
     /// Avance d'un point. Apres la ligne 261 : retour a la ligne 0 et `frame += 1`.
-    pub fn tick(&mut self, _mapper: &mut dyn Mapper) {
+    pub fn tick(&mut self, mapper: &mut dyn Mapper) {
         let (line, point) = (self.line, self.point);
         // Image impaire avec rendu actif : on saute de (261, 339) a (0, 0).
         let fin_image = line == 261 && (point == 340 || self.fin_image_impaire());
@@ -92,6 +105,75 @@ impl Ppu {
             }
             _ => {}
         }
+        self.bg_fetch(mapper); // E18b : fetchs de fond du point courant (si rendu actif)
+    }
+
+    /// Fetchs de fond au point pres (E18b) : declenches si le rendu est actif
+    /// (`mask & 0x18 != 0`) sur les lignes visibles (0-239) et pre-render (261).
+    fn bg_fetch(&mut self, mapper: &mut dyn Mapper) {
+        if self.regs.mask & 0x18 == 0 || !(self.line <= 239 || self.line == 261) {
+            return; // rendu inactive ou ligne inactive -> aucun acces memoire PPU
+        }
+        let line = self.line;
+        let dot = self.point;
+        let v = self.regs.v;
+        match dot {
+            // Fenetres de fetchs : points 1-256 et 321-336 (prechargement des tuiles suivantes).
+            1..=256 | 321..=336 => {
+                if dot == 256 {
+                    self.regs.v = background::inc_y(v); // fin de ligne : fine Y (+ coarse Y)
+                } else {
+                    match dot % 8 {
+                        0 => self.regs.v = background::inc_coarse_x(v),
+                        1 => self.nt_latch = self.read_bg(0x2000 | (v & 0x0FFF), mapper),
+                        3 => {
+                            let at_addr =
+                                0x23C0 | (v & 0x0C00) | ((v >> 4) & 0x38) | ((v >> 2) & 7);
+                            let raw = self.read_bg(at_addr, mapper);
+                            self.at_latch = (raw >> (((v >> 4) & 4) | (v & 2))) & 3;
+                        }
+                        5 => {
+                            let bg_base = if self.regs.ctrl & 0x10 != 0 {
+                                0x1000
+                            } else {
+                                0
+                            };
+                            let fine_y = (v >> 12) & 7;
+                            let addr = bg_base + u16::from(self.nt_latch) * 16 + fine_y;
+                            self.pat_lo_latch = self.read_bg(addr, mapper);
+                        }
+                        7 => {
+                            let bg_base = if self.regs.ctrl & 0x10 != 0 {
+                                0x1000
+                            } else {
+                                0
+                            };
+                            let fine_y = (v >> 12) & 7;
+                            let addr = bg_base + u16::from(self.nt_latch) * 16 + fine_y + 8;
+                            self.pat_hi_latch = self.read_bg(addr, mapper);
+                        }
+                        _ => {} // phases 2 et 4 : aucun acces memoire
+                    }
+                }
+            }
+            257 => {
+                self.regs.v = background::copy_x(v, self.regs.t); // defilement horizontal
+            }
+            280..=304 if line == 261 => {
+                self.regs.v = background::copy_y(v, self.regs.t); // pre-render : defilement vertical
+            }
+            337 | 339 => {
+                let _ = self.read_bg(0x2000 | (v & 0x0FFF), mapper); // lecture NT factice
+            }
+            _ => {}
+        }
+    }
+
+    /// Lecture memoire PPU pour un fetch de fond + notification du mapper (E18b).
+    fn read_bg(&mut self, addr: u16, mapper: &mut dyn Mapper) -> u8 {
+        let value = self.ppu_read(addr, mapper);
+        mapper.notify_ppu_address(addr);
+        value
     }
 
     /// Image impaire avec rendu actif (`mask & 0x18 != 0`).
@@ -287,6 +369,31 @@ mod tests {
         }
         fn notify_ppu_address(&mut self, addr: u16) {
             self.last = Some(addr);
+        }
+    }
+
+    /// Mapper espion : enregistre TOUTES les adresses PPU notifiees, dans l'ordre (E18b).
+    struct Espion {
+        addrs: Vec<u16>,
+    }
+
+    impl Mapper for Espion {
+        fn cpu_read(&mut self, _addr: u16) -> Option<u8> {
+            None
+        }
+        fn cpu_peek(&self, _addr: u16) -> Option<u8> {
+            None
+        }
+        fn cpu_write(&mut self, _addr: u16, _value: u8) {}
+        fn ppu_read(&mut self, _addr: u16) -> u8 {
+            0
+        }
+        fn ppu_write(&mut self, _addr: u16, _value: u8) {}
+        fn mirroring(&self) -> Mirroring {
+            Mirroring::Horizontal
+        }
+        fn notify_ppu_address(&mut self, addr: u16) {
+            self.addrs.push(addr);
         }
     }
 
@@ -634,5 +741,65 @@ mod tests {
         ppu.cpu_write_register(0x2006, 0x50, &mut m); // v = $3050
         ppu.cpu_write_register(0x2007, 0xEF, &mut m);
         assert_eq!(ppu.ciram[0x50], 0xEF); // $3050 est un miroir de $2050
+    }
+
+    /// E18b : une ligne visible complete -> motif NT, AT, BG lo, BG hi ; 34 fetchs de tuile ;
+    /// lectures NT factices en 337 et 339.
+    #[test]
+    fn ordre_des_acces() {
+        let mut ppu = Ppu::new();
+        ppu.line = 5; // ligne visible
+        ppu.point = 0;
+        ppu.regs.mask = 0x18; // rendu actif
+        let mut espion = Espion { addrs: Vec::new() };
+
+        // Un tick par point : associe les adresses notifiees au point atteint.
+        let mut par_dot: Vec<Vec<u16>> = vec![Vec::new(); 341];
+        for _ in 0..340 {
+            let avant = espion.addrs.len();
+            ppu.tick(&mut espion); // avance a (line, point+1) et fait les fetchs de ce point
+            par_dot[ppu.point as usize].extend_from_slice(&espion.addrs[avant..]);
+        }
+
+        // Motif NT, AT, BG lo, BG hi sur la premiere periode (points 1-8).
+        assert_eq!(par_dot[1], vec![0x2000]); // phase 1 : NT a $2000 | (v & $0FFF), v = 0
+        assert_eq!(par_dot[3].len(), 1); // phase 3 : AT
+        assert_eq!(par_dot[5].len(), 1); // phase 5 : motif bas
+        assert_eq!(par_dot[7].len(), 1); // phase 7 : motif haut
+        assert!(par_dot[2].is_empty()); // phases paires sans lecture (sauf inc en 8)
+        assert!(par_dot[4].is_empty());
+        assert!(par_dot[6].is_empty());
+        assert!(par_dot[8].is_empty()); // phase 0 : inc_coarse_x, pas d'acces
+
+        // 34 fetchs de tuile (32 + 2 de prechargement) = 68 lectures tables de motifs (< $2000).
+        let tuiles: usize = espion.addrs.iter().filter(|&&a| a < 0x2000).count();
+        assert_eq!(tuiles, 68);
+
+        // Lectures NT factices en 337 et 339 : une lecture nametable ($2000-$3EFF) chacune.
+        let nt_factice = |dot: usize| {
+            par_dot[dot]
+                .iter()
+                .filter(|&&a| (0x2000..0x3F00).contains(&a))
+                .count()
+        };
+        assert_eq!(nt_factice(337), 1);
+        assert_eq!(nt_factice(339), 1);
+
+        // Total des acces memoire PPU sur la ligne : 128 (points 1-256) + 8 (321-336) + 2 factices.
+        assert_eq!(espion.addrs.len(), 138);
+    }
+
+    /// E18b : mask = 0 -> aucun acces memoire PPU sur une ligne visible.
+    #[test]
+    fn pas_de_fetch_sans_rendu() {
+        let mut ppu = Ppu::new();
+        ppu.line = 5; // ligne visible
+        ppu.point = 0;
+        ppu.regs.mask = 0; // rendu inactive
+        let mut espion = Espion { addrs: Vec::new() };
+        for _ in 0..340 {
+            ppu.tick(&mut espion);
+        }
+        assert!(espion.addrs.is_empty());
     }
 }
