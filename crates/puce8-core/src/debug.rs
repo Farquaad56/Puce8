@@ -57,6 +57,83 @@ pub fn render_patterns(ppu: &Ppu, mapper: &dyn Mapper, pal: ViewPalette, out: &m
     }
 }
 
+/// Les 4 nametables : NT0 NT1 en haut, NT2 NT3 en bas.
+pub const NAMETABLES_W: usize = 512;
+pub const NAMETABLES_H: usize = 480;
+
+/// Base des motifs du fond : $1000 si `ctrl & 0x10`, sinon $0000.
+fn bg_base(ppu: &Ppu) -> u16 {
+    if ppu.ctrl() & 0x10 != 0 {
+        0x1000
+    } else {
+        0x0000
+    }
+}
+
+/// Palette 0-3 de la tuile (cx, cy) de la nametable `base` (octet d'attribut + quadrant).
+fn tile_palette(ppu: &Ppu, mapper: &dyn Mapper, base: u16, cx: u16, cy: u16) -> u8 {
+    let attr = ppu.peek_vram(base + 0x3C0 + (cy / 4) * 8 + cx / 4, mapper);
+    (attr >> (((cy & 2) << 1) | (cx & 2))) & 3
+}
+
+/// Dessine les 4 nametables dans `out` (NAMETABLES_W x NAMETABLES_H), avec le mirroring du mapper.
+pub fn render_nametables(ppu: &Ppu, mapper: &dyn Mapper, out: &mut [u16]) {
+    let pat = bg_base(ppu);
+    for n in 0..4u16 {
+        let base = 0x2000 + n * 0x400;
+        let ox = usize::from((n & 1) * 256);
+        let oy = usize::from((n >> 1) * 240);
+        for cy in 0..30u16 {
+            for cx in 0..32u16 {
+                let idx = u16::from(ppu.peek_vram(base + cy * 32 + cx, mapper));
+                let pal = tile_palette(ppu, mapper, base, cx, cy);
+                for row in 0..8u16 {
+                    for col in 0..8u16 {
+                        let px = tile_px(ppu, mapper, pat + idx * 16, row, col);
+                        let x = ox + usize::from(cx * 8 + col);
+                        let y = oy + usize::from(cy * 8 + row);
+                        out[y * NAMETABLES_W + x] = pal_color(ppu, mapper, pal, px);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Coin haut-gauche de l'ecran dans l'image des nametables (512 x 480), depuis `t` et fine `x`.
+pub fn scroll_origin(ppu: &Ppu) -> (u16, u16) {
+    let (t, x) = ppu.scroll_regs();
+    let sx = (t & 0x1F) * 8 + u16::from(x) + ((t >> 10) & 1) * 256;
+    let sy = (((t >> 5) & 0x1F) * 8 + ((t >> 12) & 7) + ((t >> 11) & 1) * 240) % 480;
+    (sx, sy)
+}
+
+/// Informations sur la tuile sous le point (x, y) de l'image des nametables.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TileInfo {
+    pub nt_addr: u16,
+    pub tile: u8,
+    pub attr_addr: u16,
+    pub palette: u8,
+    pub chr_addr: u16,
+}
+
+/// Tuile sous (x, y), avec x < 512 et y < 480.
+pub fn tile_at(ppu: &Ppu, mapper: &dyn Mapper, x: u16, y: u16) -> TileInfo {
+    let n = (y / 240) * 2 + x / 256;
+    let base = 0x2000 + n * 0x400;
+    let (cx, cy) = ((x % 256) / 8, (y % 240) / 8);
+    let nt_addr = base + cy * 32 + cx;
+    let tile = ppu.peek_vram(nt_addr, mapper);
+    TileInfo {
+        nt_addr,
+        tile,
+        attr_addr: base + 0x3C0 + (cy / 4) * 8 + cx / 4,
+        palette: tile_palette(ppu, mapper, base, cx, cy),
+        chr_addr: bg_base(ppu) + u16::from(tile) * 16,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -126,5 +203,68 @@ mod tests {
         render_patterns(&ppu, &m, ViewPalette::Gray, &mut out);
         assert_eq!(out[128], 0x00); // x = 128 : table de droite, couleur 1
         assert_eq!(out[127], 0x0F); // x = 127 : table de gauche, vide
+    }
+
+    /// Tuile 1 = couleur 1 partout ; palettes : $3F00 = 0F, $3F01 = 16, $3F05 = 26, $3F09 = 36, $3F0D = 06.
+    fn ppu_et_chr(mir: Mirroring) -> (Ppu, Mem) {
+        let mut m = mem(mir);
+        for r in 0..8 {
+            m.mem[16 + r] = 0xFF;
+        }
+        let mut ppu = Ppu::new();
+        ppu.palette[0] = 0x0F;
+        ppu.palette[1] = 0x16;
+        ppu.palette[5] = 0x26;
+        ppu.palette[9] = 0x36;
+        ppu.palette[13] = 0x06;
+        (ppu, m)
+    }
+
+    #[test]
+    fn nametable_miroir_vertical() {
+        let (mut ppu, m) = ppu_et_chr(Mirroring::Vertical);
+        ppu.ciram[0] = 1; // tuile 1 en $2000 (page 0)
+        let mut out = vec![0u16; NAMETABLES_W * NAMETABLES_H];
+        render_nametables(&ppu, &m, &mut out);
+        assert_eq!(out[0], 0x16); // (0, 0) : NT0
+        assert_eq!(out[240 * NAMETABLES_W], 0x16); // (0, 240) : NT2 = NT0 en vertical
+        assert_eq!(out[256], 0x0F); // (256, 0) : NT1 = page 1, vide
+    }
+
+    #[test]
+    fn attribut_quadrants() {
+        let (mut ppu, m) = ppu_et_chr(Mirroring::Horizontal);
+        for (cx, cy) in [(0usize, 0usize), (2, 0), (0, 2), (2, 2)] {
+            ppu.ciram[cy * 32 + cx] = 1;
+        }
+        ppu.ciram[0x3C0] = 0b11_10_01_00;
+        let mut out = vec![0u16; NAMETABLES_W * NAMETABLES_H];
+        render_nametables(&ppu, &m, &mut out);
+        let px = |cx: usize, cy: usize| out[cy * 8 * NAMETABLES_W + cx * 8];
+        assert_eq!(px(0, 0), 0x16); // pal 0
+        assert_eq!(px(2, 0), 0x26); // pal 1
+        assert_eq!(px(0, 2), 0x36); // pal 2
+        assert_eq!(px(2, 2), 0x06); // pal 3
+        assert_eq!(tile_at(&ppu, &m, 16, 16).palette, 3);
+    }
+
+    #[test]
+    fn scroll_origin_2005() {
+        let (mut ppu, mut m) = ppu_et_chr(Mirroring::Horizontal);
+        ppu.cpu_write_register(5, 0x7D, &mut m);
+        ppu.cpu_write_register(5, 0x5E, &mut m);
+        assert_eq!(scroll_origin(&ppu), (125, 94));
+    }
+
+    #[test]
+    fn tile_at_simple() {
+        let (mut ppu, m) = ppu_et_chr(Mirroring::Horizontal);
+        ppu.ciram[1] = 1;
+        let info = tile_at(&ppu, &m, 8, 0);
+        assert_eq!(info.nt_addr, 0x2001);
+        assert_eq!(info.tile, 1);
+        assert_eq!(info.attr_addr, 0x23C0);
+        assert_eq!(info.chr_addr, 0x0010);
+        assert_eq!(tile_at(&ppu, &m, 256, 240).nt_addr, 0x2C00);
     }
 }
