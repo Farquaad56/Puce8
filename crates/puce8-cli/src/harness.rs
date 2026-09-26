@@ -53,6 +53,8 @@ pub fn run_blargg6000(nes: &mut Nes, max_frames: u32) -> Resultat {
     let mut frames = 0u32;
     let mut cycles = 0u64;
 
+    let mut reset_pending = false;
+
     loop {
         if frames >= max_frames {
             return make_result(&rom, "blargg6000", "TIMEOUT", -1, "", frames, cycles);
@@ -73,22 +75,7 @@ pub fn run_blargg6000(nes: &mut Nes, max_frames: u32) -> Resultat {
 
         let status = nes.peek(0x6000);
 
-        if status == 0x80 {
-            // Wait one frame (loop on $2002)
-            let start = nes.bus.cpu_cycles;
-            nes.run_frame();
-            cycles += nes.bus.cpu_cycles - start;
-            frames += 1;
-        } else if status == 0x81 {
-            // Run 6 frames then reset
-            for _ in 0..6 {
-                let start = nes.bus.cpu_cycles;
-                nes.run_frame();
-                cycles += nes.bus.cpu_cycles - start;
-                frames += 1;
-            }
-            nes.reset();
-        } else if status < 0x80 {
+        if status < 0x80 {
             // Done: 0 = success, otherwise error code
             let texte = read_c_string(nes, 0x6004, 256);
             if status == 0 {
@@ -104,6 +91,30 @@ pub fn run_blargg6000(nes: &mut Nes, max_frames: u32) -> Resultat {
                     cycles,
                 );
             }
+        }
+
+        // status >= 0x80 : attendre (jouer une image).
+        if status == 0x81 && !reset_pending {
+            // "Appuyer sur Reset, au moins 100 ms apres maintenant".
+            // 7 images ~ 116 ms > 100 ms requis.
+            for _ in 0..7 {
+                let start = nes.bus.cpu_cycles;
+                nes.run_frame();
+                cycles += nes.bus.cpu_cycles - start;
+                frames += 1;
+            }
+            nes.reset();
+            reset_pending = true;
+        } else {
+            // status == 0x80 (attente), ou $81 deja traite, ou autre valeur >= 0x80.
+            let start = nes.bus.cpu_cycles;
+            nes.run_frame();
+            cycles += nes.bus.cpu_cycles - start;
+            frames += 1;
+        }
+
+        if status == 0x80 {
+            reset_pending = false;
         }
     }
 }
@@ -234,6 +245,31 @@ mod tests {
         let result = run_blargg6000(&mut nes, 100);
         assert_eq!(result.resultat, "ECHEC");
         assert_eq!(result.code, 3);
+    }
+
+    #[test]
+    fn test_blargg6000_reset_timeout() {
+        // ROM ecrit la signature blargg et garde $6000 = $81 en permanence :
+        // le harnais doit finir en TIMEOUT (pas bloquer).
+        let prg = [
+            0xA2, 0xDE, // LDX #$DE
+            0x8E, 0x01, 0x60, // STX $6001
+            0xA2, 0xB0, // LDX #$B0
+            0x8E, 0x02, 0x60, // STX $6002
+            0xA2, 0x61, // LDX #$61
+            0x8E, 0x03, 0x60, // STX $6003
+            0xA9, 0x81, // LDA #$81
+            0x8D, 0x00, 0x60, // STA $6000
+            0xFF, // BRA +0 (boucle pour toujours)
+        ];
+
+        let rom = build_rom(&prg);
+        let mut nes = Nes::from_rom(&rom).expect("valid ROM");
+        for _ in 0..100 {
+            nes.tick();
+        }
+        let result = run_blargg6000(&mut nes, 200);
+        assert_eq!(result.resultat, "TIMEOUT");
     }
 
     #[test]

@@ -1,4 +1,5 @@
 mod harness;
+mod suite;
 
 use std::env;
 use std::fs;
@@ -183,6 +184,10 @@ fn main() {
         "run" => do_run(&args),
         "blargg" => do_blargg(&args),
         "blarggf8" => do_blarggf8(&args),
+        "suite" => {
+            let c = suite::do_suite(&args);
+            process::exit(c);
+        }
         _ => die(2, &format!("unknown command: {}", args[1])),
     }
 }

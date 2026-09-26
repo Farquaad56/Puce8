@@ -1,0 +1,670 @@
+# Catalogue des ROM de test Puce8 - genere, complet (plus rien a deplier).
+# Chemins relatifs a tests/roms/. Protocoles : voir 03_PROTOCOLE_TESTS.md section T3.
+# Les entrees " image " recoivent leur hash_attendu a l'etape indiquee.
+
+[[rom]]
+chemin = "other/nestest.nes"
+protocole = "nestest"
+phase = "cpu"
+etape = "E11"
+
+[[rom]]
+chemin = "instr_test-v5/rom_singles/01-basics.nes"
+protocole = "blargg6000"
+phase = "cpu"
+etape = "E14"
+
+[[rom]]
+chemin = "instr_test-v5/rom_singles/02-implied.nes"
+protocole = "blargg6000"
+phase = "cpu"
+etape = "E14"
+
+[[rom]]
+chemin = "instr_test-v5/rom_singles/03-immediate.nes"
+protocole = "blargg6000"
+phase = "cpu"
+etape = "E14"
+
+[[rom]]
+chemin = "instr_test-v5/rom_singles/04-zero_page.nes"
+protocole = "blargg6000"
+phase = "cpu"
+etape = "E14"
+
+[[rom]]
+chemin = "instr_test-v5/rom_singles/05-zp_xy.nes"
+protocole = "blargg6000"
+phase = "cpu"
+etape = "E14"
+
+[[rom]]
+chemin = "instr_test-v5/rom_singles/06-absolute.nes"
+protocole = "blargg6000"
+phase = "cpu"
+etape = "E14"
+
+[[rom]]
+chemin = "instr_test-v5/rom_singles/07-abs_xy.nes"
+protocole = "blargg6000"
+phase = "cpu"
+etape = "E14"
+
+[[rom]]
+chemin = "instr_test-v5/rom_singles/08-ind_x.nes"
+protocole = "blargg6000"
+phase = "cpu"
+etape = "E14"
+
+[[rom]]
+chemin = "instr_test-v5/rom_singles/09-ind_y.nes"
+protocole = "blargg6000"
+phase = "cpu"
+etape = "E14"
+
+[[rom]]
+chemin = "instr_test-v5/rom_singles/10-branches.nes"
+protocole = "blargg6000"
+phase = "cpu"
+etape = "E14"
+
+[[rom]]
+chemin = "instr_test-v5/rom_singles/11-stack.nes"
+protocole = "blargg6000"
+phase = "cpu"
+etape = "E14"
+
+[[rom]]
+chemin = "instr_test-v5/rom_singles/12-jmp_jsr.nes"
+protocole = "blargg6000"
+phase = "cpu"
+etape = "E14"
+
+[[rom]]
+chemin = "instr_test-v5/rom_singles/13-rts.nes"
+protocole = "blargg6000"
+phase = "cpu"
+etape = "E14"
+
+[[rom]]
+chemin = "instr_test-v5/rom_singles/14-rti.nes"
+protocole = "blargg6000"
+phase = "cpu"
+etape = "E14"
+
+[[rom]]
+chemin = "instr_test-v5/rom_singles/15-brk.nes"
+protocole = "blargg6000"
+phase = "cpu"
+etape = "E14"
+
+[[rom]]
+chemin = "instr_test-v5/rom_singles/16-special.nes"
+protocole = "blargg6000"
+phase = "cpu"
+etape = "E14"
+
+[[rom]]
+chemin = "instr_test-v5/official_only.nes"
+protocole = "blargg6000"
+phase = "cpu"
+etape = "E26"
+max_frames = 6000
+
+[[rom]]
+chemin = "instr_test-v5/all_instrs.nes"
+protocole = "blargg6000"
+phase = "cpu"
+etape = "E26"
+max_frames = 6000
+
+[[rom]]
+chemin = "instr_misc/rom_singles/01-abs_x_wrap.nes"
+protocole = "blargg6000"
+phase = "cpu"
+etape = "E14"
+
+[[rom]]
+chemin = "instr_misc/rom_singles/02-branch_wrap.nes"
+protocole = "blargg6000"
+phase = "cpu"
+etape = "E14"
+
+[[rom]]
+chemin = "instr_misc/rom_singles/03-dummy_reads.nes"
+protocole = "blargg6000"
+phase = "cpu"
+etape = "E17"
+
+[[rom]]
+chemin = "instr_misc/rom_singles/04-dummy_reads_apu.nes"
+protocole = "blargg6000"
+phase = "cpu"
+etape = "E30"
+
+[[rom]]
+chemin = "cpu_reset/registers.nes"
+protocole = "blargg6000"
+phase = "cpu"
+etape = "E14"
+
+[[rom]]
+chemin = "cpu_reset/ram_after_reset.nes"
+protocole = "blargg6000"
+phase = "cpu"
+etape = "E14"
+
+[[rom]]
+chemin = "instr_timing/rom_singles/1-instr_timing.nes"
+protocole = "blargg6000"
+phase = "timing"
+etape = "E30"
+
+[[rom]]
+chemin = "instr_timing/rom_singles/2-branch_timing.nes"
+protocole = "blargg6000"
+phase = "timing"
+etape = "E30"
+
+[[rom]]
+chemin = "cpu_interrupts_v2/rom_singles/1-cli_latency.nes"
+protocole = "blargg6000"
+phase = "timing"
+etape = "E30"
+
+[[rom]]
+chemin = "cpu_interrupts_v2/rom_singles/2-nmi_and_brk.nes"
+protocole = "blargg6000"
+phase = "timing"
+etape = "E36"
+
+[[rom]]
+chemin = "cpu_interrupts_v2/rom_singles/3-nmi_and_irq.nes"
+protocole = "blargg6000"
+phase = "timing"
+etape = "E36"
+
+[[rom]]
+chemin = "cpu_interrupts_v2/rom_singles/4-irq_and_dma.nes"
+protocole = "blargg6000"
+phase = "timing"
+etape = "E36"
+
+[[rom]]
+chemin = "cpu_interrupts_v2/rom_singles/5-branch_delays_irq.nes"
+protocole = "blargg6000"
+phase = "timing"
+etape = "E36"
+
+[[rom]]
+chemin = "cpu_dummy_reads/cpu_dummy_reads.nes"
+protocole = "image"
+phase = "cpu"
+etape = "E25"
+optionnel = true
+
+[[rom]]
+chemin = "ppu_vbl_nmi/rom_singles/01-vbl_basics.nes"
+protocole = "blargg6000"
+phase = "ppu"
+etape = "E17"
+
+[[rom]]
+chemin = "ppu_vbl_nmi/rom_singles/02-vbl_set_time.nes"
+protocole = "blargg6000"
+phase = "ppu"
+etape = "E17"
+
+[[rom]]
+chemin = "ppu_vbl_nmi/rom_singles/03-vbl_clear_time.nes"
+protocole = "blargg6000"
+phase = "ppu"
+etape = "E17"
+
+[[rom]]
+chemin = "ppu_vbl_nmi/rom_singles/04-nmi_control.nes"
+protocole = "blargg6000"
+phase = "ppu"
+etape = "E17"
+
+[[rom]]
+chemin = "ppu_vbl_nmi/rom_singles/06-suppression.nes"
+protocole = "blargg6000"
+phase = "ppu"
+etape = "E17"
+
+[[rom]]
+chemin = "ppu_vbl_nmi/rom_singles/09-even_odd_frames.nes"
+protocole = "blargg6000"
+phase = "ppu"
+etape = "E18"
+
+[[rom]]
+chemin = "ppu_vbl_nmi/rom_singles/05-nmi_timing.nes"
+protocole = "blargg6000"
+phase = "timing"
+etape = "E36"
+
+[[rom]]
+chemin = "ppu_vbl_nmi/rom_singles/07-nmi_on_timing.nes"
+protocole = "blargg6000"
+phase = "timing"
+etape = "E36"
+
+[[rom]]
+chemin = "ppu_vbl_nmi/rom_singles/08-nmi_off_timing.nes"
+protocole = "blargg6000"
+phase = "timing"
+etape = "E36"
+
+[[rom]]
+chemin = "ppu_vbl_nmi/rom_singles/10-even_odd_timing.nes"
+protocole = "blargg6000"
+phase = "timing"
+etape = "E36"
+
+[[rom]]
+chemin = "oam_read/oam_read.nes"
+protocole = "blargg6000"
+phase = "ppu"
+etape = "E16"
+
+[[rom]]
+chemin = "oam_stress/oam_stress.nes"
+protocole = "blargg6000"
+phase = "ppu"
+etape = "E16"
+optionnel = true
+
+[[rom]]
+chemin = "ppu_open_bus/ppu_open_bus.nes"
+protocole = "blargg6000"
+phase = "ppu"
+etape = "E22"
+optionnel = true
+
+[[rom]]
+chemin = "ppu_read_buffer/test_ppu_read_buffer.nes"
+protocole = "blargg6000"
+phase = "ppu"
+etape = "E25"
+optionnel = true
+
+[[rom]]
+chemin = "blargg_ppu_tests_2005.09.15b/palette_ram.nes"
+protocole = "blarggF8"
+phase = "ppu"
+etape = "E15"
+
+[[rom]]
+chemin = "blargg_ppu_tests_2005.09.15b/vram_access.nes"
+protocole = "blarggF8"
+phase = "ppu"
+etape = "E15"
+
+[[rom]]
+chemin = "blargg_ppu_tests_2005.09.15b/sprite_ram.nes"
+protocole = "blarggF8"
+phase = "ppu"
+etape = "E16"
+
+[[rom]]
+chemin = "blargg_ppu_tests_2005.09.15b/vbl_clear_time.nes"
+protocole = "blarggF8"
+phase = "ppu"
+etape = "E17"
+
+[[rom]]
+chemin = "blargg_ppu_tests_2005.09.15b/power_up_palette.nes"
+protocole = "blarggF8"
+phase = "ppu"
+etape = "E15"
+attendu = "echec"
+
+[[rom]]
+chemin = "sprite_hit_tests_2005.10.05/01.basics.nes"
+protocole = "blarggF8"
+phase = "ppu"
+etape = "E21"
+
+[[rom]]
+chemin = "sprite_hit_tests_2005.10.05/02.alignment.nes"
+protocole = "blarggF8"
+phase = "ppu"
+etape = "E21"
+
+[[rom]]
+chemin = "sprite_hit_tests_2005.10.05/03.corners.nes"
+protocole = "blarggF8"
+phase = "ppu"
+etape = "E21"
+
+[[rom]]
+chemin = "sprite_hit_tests_2005.10.05/04.flip.nes"
+protocole = "blarggF8"
+phase = "ppu"
+etape = "E21"
+
+[[rom]]
+chemin = "sprite_hit_tests_2005.10.05/05.left_clip.nes"
+protocole = "blarggF8"
+phase = "ppu"
+etape = "E21"
+
+[[rom]]
+chemin = "sprite_hit_tests_2005.10.05/06.right_edge.nes"
+protocole = "blarggF8"
+phase = "ppu"
+etape = "E21"
+
+[[rom]]
+chemin = "sprite_hit_tests_2005.10.05/07.screen_bottom.nes"
+protocole = "blarggF8"
+phase = "ppu"
+etape = "E21"
+
+[[rom]]
+chemin = "sprite_hit_tests_2005.10.05/08.double_height.nes"
+protocole = "blarggF8"
+phase = "ppu"
+etape = "E21"
+
+[[rom]]
+chemin = "sprite_hit_tests_2005.10.05/09.timing_basics.nes"
+protocole = "blarggF8"
+phase = "timing"
+etape = "E36"
+
+[[rom]]
+chemin = "sprite_hit_tests_2005.10.05/10.timing_order.nes"
+protocole = "blarggF8"
+phase = "timing"
+etape = "E36"
+
+[[rom]]
+chemin = "sprite_hit_tests_2005.10.05/11.edge_timing.nes"
+protocole = "blarggF8"
+phase = "timing"
+etape = "E36"
+
+[[rom]]
+chemin = "sprite_overflow_tests/1.Basics.nes"
+protocole = "blarggF8"
+phase = "ppu"
+etape = "E20"
+
+[[rom]]
+chemin = "sprite_overflow_tests/2.Details.nes"
+protocole = "blarggF8"
+phase = "ppu"
+etape = "E20"
+
+[[rom]]
+chemin = "sprite_overflow_tests/5.Emulator.nes"
+protocole = "blarggF8"
+phase = "ppu"
+etape = "E20"
+
+[[rom]]
+chemin = "sprite_overflow_tests/3.Timing.nes"
+protocole = "blarggF8"
+phase = "timing"
+etape = "E36"
+
+[[rom]]
+chemin = "sprite_overflow_tests/4.Obscure.nes"
+protocole = "blarggF8"
+phase = "ppu"
+etape = "E36"
+optionnel = true
+
+[[rom]]
+chemin = "vbl_nmi_timing/1.frame_basics.nes"
+protocole = "blarggF8"
+phase = "timing"
+etape = "E36"
+optionnel = true
+
+[[rom]]
+chemin = "vbl_nmi_timing/2.vbl_timing.nes"
+protocole = "blarggF8"
+phase = "timing"
+etape = "E36"
+optionnel = true
+
+[[rom]]
+chemin = "vbl_nmi_timing/3.even_odd_frames.nes"
+protocole = "blarggF8"
+phase = "timing"
+etape = "E36"
+optionnel = true
+
+[[rom]]
+chemin = "vbl_nmi_timing/4.vbl_clear_timing.nes"
+protocole = "blarggF8"
+phase = "timing"
+etape = "E36"
+optionnel = true
+
+[[rom]]
+chemin = "vbl_nmi_timing/5.nmi_suppression.nes"
+protocole = "blarggF8"
+phase = "timing"
+etape = "E36"
+optionnel = true
+
+[[rom]]
+chemin = "vbl_nmi_timing/6.nmi_disable.nes"
+protocole = "blarggF8"
+phase = "timing"
+etape = "E36"
+optionnel = true
+
+[[rom]]
+chemin = "vbl_nmi_timing/7.nmi_timing.nes"
+protocole = "blarggF8"
+phase = "timing"
+etape = "E36"
+optionnel = true
+
+[[rom]]
+chemin = "mmc3_test_2/rom_singles/1-clocking.nes"
+protocole = "blargg6000"
+phase = "mapper"
+etape = "E28"
+
+[[rom]]
+chemin = "mmc3_test_2/rom_singles/2-details.nes"
+protocole = "blargg6000"
+phase = "mapper"
+etape = "E28"
+
+[[rom]]
+chemin = "mmc3_test_2/rom_singles/3-A12_clocking.nes"
+protocole = "blargg6000"
+phase = "mapper"
+etape = "E28"
+
+[[rom]]
+chemin = "mmc3_test_2/rom_singles/4-scanline_timing.nes"
+protocole = "blargg6000"
+phase = "mapper"
+etape = "E28"
+
+[[rom]]
+chemin = "mmc3_test_2/rom_singles/5-MMC3.nes"
+protocole = "blargg6000"
+phase = "mapper"
+etape = "E28"
+
+[[rom]]
+chemin = "mmc3_test_2/rom_singles/6-MMC3_alt.nes"
+protocole = "blargg6000"
+phase = "mapper"
+etape = "E28"
+attendu = "echec"
+
+[[rom]]
+chemin = "apu_test/rom_singles/1-len_ctr.nes"
+protocole = "blargg6000"
+phase = "apu"
+etape = "E30"
+
+[[rom]]
+chemin = "apu_test/rom_singles/2-len_table.nes"
+protocole = "blargg6000"
+phase = "apu"
+etape = "E30"
+
+[[rom]]
+chemin = "apu_test/rom_singles/3-irq_flag.nes"
+protocole = "blargg6000"
+phase = "apu"
+etape = "E30"
+
+[[rom]]
+chemin = "apu_test/rom_singles/4-jitter.nes"
+protocole = "blargg6000"
+phase = "apu"
+etape = "E35"
+
+[[rom]]
+chemin = "apu_test/rom_singles/5-len_timing.nes"
+protocole = "blargg6000"
+phase = "apu"
+etape = "E35"
+
+[[rom]]
+chemin = "apu_test/rom_singles/6-irq_flag_timing.nes"
+protocole = "blargg6000"
+phase = "apu"
+etape = "E35"
+
+[[rom]]
+chemin = "apu_test/rom_singles/7-dmc_basics.nes"
+protocole = "blargg6000"
+phase = "apu"
+etape = "E33"
+
+[[rom]]
+chemin = "apu_test/rom_singles/8-dmc_rates.nes"
+protocole = "blargg6000"
+phase = "apu"
+etape = "E33"
+
+[[rom]]
+chemin = "apu_reset/4015_cleared.nes"
+protocole = "blargg6000"
+phase = "apu"
+etape = "E35"
+
+[[rom]]
+chemin = "apu_reset/4017_timing.nes"
+protocole = "blargg6000"
+phase = "apu"
+etape = "E35"
+
+[[rom]]
+chemin = "apu_reset/4017_written.nes"
+protocole = "blargg6000"
+phase = "apu"
+etape = "E35"
+
+[[rom]]
+chemin = "apu_reset/irq_flag_cleared.nes"
+protocole = "blargg6000"
+phase = "apu"
+etape = "E35"
+
+[[rom]]
+chemin = "apu_reset/len_ctrs_enabled.nes"
+protocole = "blargg6000"
+phase = "apu"
+etape = "E35"
+
+[[rom]]
+chemin = "apu_reset/works_immediately.nes"
+protocole = "blargg6000"
+phase = "apu"
+etape = "E35"
+
+[[rom]]
+chemin = "sprdma_and_dmc_dma/sprdma_and_dmc_dma.nes"
+protocole = "image"
+phase = "timing"
+etape = "E36"
+optionnel = true
+
+[[rom]]
+chemin = "sprdma_and_dmc_dma/sprdma_and_dmc_dma_512.nes"
+protocole = "image"
+phase = "timing"
+etape = "E36"
+optionnel = true
+
+[[rom]]
+chemin = "branch_timing_tests/1.Branch_Basics.nes"
+protocole = "blarggF8"
+phase = "timing"
+etape = "E36"
+
+[[rom]]
+chemin = "branch_timing_tests/2.Backward_Branch.nes"
+protocole = "blarggF8"
+phase = "timing"
+etape = "E36"
+
+[[rom]]
+chemin = "branch_timing_tests/3.Forward_Branch.nes"
+protocole = "blarggF8"
+phase = "timing"
+etape = "E36"
+
+[[rom]]
+chemin = "cpu_dummy_writes/cpu_dummy_writes_oam.nes"
+protocole = "blargg6000"
+phase = "timing"
+etape = "E36"
+optionnel = true
+
+[[rom]]
+chemin = "cpu_dummy_writes/cpu_dummy_writes_ppumem.nes"
+protocole = "blargg6000"
+phase = "timing"
+etape = "E36"
+optionnel = true
+
+[[rom]]
+chemin = "dmc_dma_during_read4/dma_2007_read.nes"
+protocole = "image"
+phase = "timing"
+etape = "E36"
+optionnel = true
+
+[[rom]]
+chemin = "dmc_dma_during_read4/dma_2007_write.nes"
+protocole = "image"
+phase = "timing"
+etape = "E36"
+optionnel = true
+
+[[rom]]
+chemin = "dmc_dma_during_read4/dma_4016_read.nes"
+protocole = "image"
+phase = "timing"
+etape = "E36"
+optionnel = true
+
+[[rom]]
+chemin = "dmc_dma_during_read4/double_2007_read.nes"
+protocole = "image"
+phase = "timing"
+etape = "E36"
+optionnel = true
+
+[[rom]]
+chemin = "dmc_dma_during_read4/read_write_2007.nes"
+protocole = "image"
+phase = "timing"
+etape = "E36"
+optionnel = true
