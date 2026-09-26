@@ -1045,4 +1045,122 @@ mod t1 {
             ]
         );
     }
+
+    // --- E12b : latence CLI/SEI, niveau IRQ après RTI, détournement par NMI ---
+
+    #[test]
+    fn cli_latence() {
+        let mut bus = nmi_irq_bus(); // reset → $0600 ; IRQ $FFFE → $0800
+        bus.load(0x0600, &[0x58, 0xEA, 0xEA]); // CLI NOP NOP
+        let mut cpu = cpu_apres_reset(&mut bus);
+        assert!(cpu.flag(FLAG_I)); // après reset I = 1 : l'IRQ est masquée
+        bus.irq = true; // ligne posée en permanence
+        assert_eq!(cpu.step_instruction(&mut bus), 2); // CLI
+        assert_eq!(cpu.pc, 0x0601);
+        assert!(!cpu.prev_run_irq); // pas d'interruption juste après le CLI (I posé à l'échantillonnage)
+        assert_eq!(cpu.step_instruction(&mut bus), 2); // premier NOP
+        assert_eq!(cpu.pc, 0x0602);
+        let ticks = cpu.step_instruction(&mut bus); // l'IRQ arrive après ce NOP
+        assert_eq!(ticks, 7);
+        assert_eq!(cpu.pc, 0x0800); // vecteur $FFFE → $0800
+    }
+
+    #[test]
+    fn sei_irq() {
+        let mut bus = nmi_irq_bus();
+        bus.load(0x0600, &[0x78, 0xEA]); // SEI NOP
+        let mut cpu = cpu_apres_reset(&mut bus);
+        cpu.set_flag(FLAG_I, false); // I = 0 : l'IRQ est déjà active (niveau)
+        bus.irq = true;
+        assert_eq!(cpu.step_instruction(&mut bus), 2); // SEI
+        assert_eq!(cpu.pc, 0x0601);
+        assert!(cpu.prev_run_irq); // échantillonnée avant que le SEI pose I
+        let ticks = cpu.step_instruction(&mut bus); // l'IRQ arrive juste après le SEI
+        assert_eq!(ticks, 7);
+        assert_eq!(cpu.pc, 0x0800); // vecteur $FFFE → $0800
+        assert_ne!(bus.mem[0x01FB] & FLAG_I, 0); // P empilé avec I = 1 (posé par le SEI)
+    }
+
+    #[test]
+    fn irq_niveau_apres_rti() {
+        let mut bus = nmi_irq_bus(); // IRQ $FFFE → $0800 ; reset → $0600 (NOP)
+        let mut cpu = cpu_apres_reset(&mut bus);
+        cpu.set_flag(FLAG_I, false); // I = 0 : l'IRQ est active en permanence
+        bus.irq = true;
+        bus.load(0x0800, &[0x40]); // RTI à l'entrée du gestionnaire
+        assert_eq!(cpu.step_instruction(&mut bus), 2); // NOP en $0600
+        for _ in 0..3 {
+            let ticks = cpu.step_instruction(&mut bus); // IRQ → $0800 (vecteur $FFFE)
+            assert_eq!(ticks, 7);
+            assert_eq!(cpu.pc, 0x0800);
+            assert!(cpu.flag(FLAG_I)); // I reposé par la séquence d'interruption
+            let ticks = cpu.step_instruction(&mut bus); // RTI : P restauré (I = 0), PC = $0601
+            assert_eq!(ticks, 6);
+            assert!(!cpu.flag(FLAG_I));
+        }
+        assert_eq!(cpu.step_instruction(&mut bus), 7); // l'IRQ repart après le dernier RTI
+        assert_eq!(cpu.pc, 0x0800);
+    }
+
+    #[test]
+    fn nmi_nouveau_front() {
+        let mut bus = nmi_irq_bus(); // NMI $FFFA → $0700 ; reset → $0600 (NOP)
+        let mut cpu = cpu_apres_reset(&mut bus);
+        bus.load(0x0700, &[0xEA, 0xEA]); // NOPs à l'entrée du gestionnaire ($0700 et $0701)
+        bus.nmi = true; // front montant pendant le NOP de $0600
+        assert_eq!(cpu.step_instruction(&mut bus), 2); // NOP en $0600
+        let ticks = cpu.step_instruction(&mut bus); // NMI n°1 → $0700
+        assert_eq!(ticks, 7);
+        assert_eq!(cpu.pc, 0x0700);
+        assert!(!cpu.need_nmi); // consommé par ReadVectorHi
+        bus.nmi = false; // front descendant : la ligne repasse à faux
+        assert_eq!(cpu.step_instruction(&mut bus), 2); // NOP en $0700, pas de NMI
+        assert_eq!(cpu.pc, 0x0701);
+        bus.nmi = true; // nouveau front montant
+        assert_eq!(cpu.step_instruction(&mut bus), 2); // NOP en $0701
+        let ticks = cpu.step_instruction(&mut bus); // NMI n°2 → $0700
+        assert_eq!(ticks, 7);
+        assert_eq!(cpu.pc, 0x0700);
+    }
+
+    #[test]
+    fn brk_detourne() {
+        let mut bus = TestBus::new();
+        bus.set_vector(0xFFFC, 0x0600); // reset → $0600
+        bus.load(0x0600, &[0x00]); // BRK
+        bus.set_vector(0xFFFA, 0x1234); // NMI → $1234
+        bus.set_vector(0xFFFE, 0x5678); // BRK sans NMI → $5678
+        let mut cpu = cpu_apres_reset(&mut bus);
+        bus.on_access = Some(Box::new(|idx, nmi, _irq| {
+            if idx == 2 {
+                *nmi = true; // front montant sur l'accès n°2 du BRK (PushPch)
+            }
+        }));
+        let ticks = cpu.step_instruction(&mut bus);
+        assert_eq!(ticks, 7); // BRK : opcode + 6 micro-ops
+        assert_eq!(cpu.pc, 0x1234); // vecteur $FFFA pris (pas $5678)
+        assert!(!cpu.need_nmi); // consommé par ReadVectorHi
+        assert_eq!(bus.mem[0x01FB], 0x34); // P empilé : B = 1 (P | $30, P = $24)
+        bus.load(0x1234, &[0xEA]);
+        assert_eq!(cpu.step_instruction(&mut bus), 2); // pas de second NMI : la ligne reste posée sans nouveau front
+    }
+
+    #[test]
+    fn irq_detourne() {
+        let mut bus = nmi_irq_bus(); // NMI $FFFA → $0700 ; IRQ $FFFE → $0800
+        let mut cpu = cpu_apres_reset(&mut bus);
+        cpu.set_flag(FLAG_I, false); // I = 0 : la séquence d'interruption est déclenchée par l'IRQ
+        bus.irq = true;
+        assert_eq!(cpu.step_instruction(&mut bus), 2); // NOP en $0600
+        bus.on_access = Some(Box::new(|idx, nmi, _irq| {
+            if idx == 4 {
+                *nmi = true; // front montant pendant PushPch de la séquence d'interruption
+            }
+        }));
+        let ticks = cpu.step_instruction(&mut bus);
+        assert_eq!(ticks, 7);
+        assert_eq!(cpu.pc, 0x0700); // vecteur $FFFA (NMI), pas $FFFE ($0800)
+        assert!(!cpu.need_nmi); // consommé par ReadVectorHi
+        assert!(cpu.flag(FLAG_I));
+    }
 }
