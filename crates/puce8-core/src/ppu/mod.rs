@@ -1,6 +1,7 @@
 //! PPU minimale : geometrie 341 x 262, VBlank en (241, 1) (E13a), registres loopy (E15a).
 //! E15b : memoire PPU (tables de motifs, CIRAM, palette) et $2007.
 //! E16a : OAM ($2003/$2004).
+//! E17a : courses VBlank a la lecture $2002 (suppression du drapeau ou de la NMI).
 // wiki: PPU_scrolling ; wiki: PPU_masks_and_control
 
 pub mod registers;
@@ -18,6 +19,10 @@ pub struct Ppu {
     pub frame: u64,
     /// VBlank : 1 de (241, 1) a (261, 1).
     pub vblank: bool,
+    /// true si $2002 lu en (241, 0) : le drapeau VBlank ne sera pas mis a 1 cette image.
+    pub suppress_vbl: bool,
+    /// true si $2002 lu en (241, 1) ou (241, 2) : nmi_line() forcee a faux jusqu'a la fin du VBlank.
+    pub nmi_suppressed: bool,
     /// true une seule fois par image, au moment ou VBlank passe a 1.
     pub frame_complete: bool,
     /// Registres $2000-$2007.
@@ -46,6 +51,8 @@ impl Ppu {
             point: 0,
             frame: 0,
             vblank: false,
+            suppress_vbl: false,
+            nmi_suppressed: false,
             frame_complete: false,
             regs: Registers::new(),
             read_buffer: 0,
@@ -72,10 +79,16 @@ impl Ppu {
         }
         match (self.line, self.point) {
             (241, 1) => {
-                self.vblank = true; // VBlank = 1 en (241, 1)
-                self.frame_complete = true;
+                self.frame_complete = true; // frontiere d'image : toujours posee
+                if !self.suppress_vbl {
+                    self.vblank = true; // VBlank = 1 en (241, 1), sauf si $2002 lu en (241, 0)
+                }
             }
-            (261, 1) => self.vblank = false, // VBlank = 0 en (261, 1)
+            (261, 1) => {
+                self.vblank = false; // VBlank = 0 en (261, 1)
+                self.suppress_vbl = false; // suppression limitee a l'image courante
+                self.nmi_suppressed = false; // fin du VBlank : nmi_line() redevient normale
+            }
             _ => {}
         }
     }
@@ -145,7 +158,8 @@ impl Ppu {
         }
     }
 
-    /// Lecture CPU d'un registre PPU (reg = addr & 7). $2002 efface VBlank et `w`.
+    /// Lecture CPU d'un registre PPU (reg = addr & 7). $2002 efface VBlank et `w` ; lu en
+    /// (241, 0) il supprime le drapeau de l'image courante, lu en (241, 1)/(241, 2) la NMI.
     pub fn cpu_read_register(&mut self, reg: u16, mapper: &mut dyn Mapper) -> u8 {
         let r = usize::from(reg & 0x07);
         if r == 7 {
@@ -169,6 +183,14 @@ impl Ppu {
         }
         let value = self.regs.read(r as u8, self.vblank);
         if r == 2 {
+            match (self.line, self.point) {
+                // $2002 lu un point avant le VBlank : lit 0 et le drapeau ne sera pas
+                // mis a 1 pendant cette image (pas de NMI).
+                (241, 0) => self.suppress_vbl = true,
+                // $2002 lu en debut de VBlank : lit 1, efface, aucune NMI pour cette image.
+                (241, 1) | (241, 2) => self.nmi_suppressed = true,
+                _ => {}
+            }
             self.vblank = false; // $2002 efface VBlank
         }
         value
@@ -217,9 +239,10 @@ impl Ppu {
         }
     }
 
-    /// Ligne NMI : VBlank active et bit 7 de $2000 pose.
+    /// Ligne NMI : VBlank active et bit 7 de $2000 pose ; forcee a faux jusqu'a la fin du
+    /// VBlank si $2002 lu en (241, 1) ou (241, 2).
     pub fn nmi_line(&self) -> bool {
-        self.vblank && self.regs.ctrl & 0x80 != 0
+        !self.nmi_suppressed && self.vblank && self.regs.ctrl & 0x80 != 0
     }
 
     /// true une seule fois par image, au moment ou VBlank passe a 1.
@@ -361,6 +384,73 @@ mod tests {
         assert!(!ppu.nmi_line()); // $2000 = 0 -> NMI inactive
         ppu.cpu_write_register(0x2000, 0x80, &mut (*bus.mapper));
         assert!(ppu.nmi_line()); // VBlank + bit 7 de $2000 pose
+    }
+
+    #[test]
+    fn course_moins_1() {
+        let mut bus = Bus::for_test_with_prg(&[0xA9]);
+        let mut ppu = Ppu::new();
+        ppu.cpu_write_register(0x2000, 0x80, &mut (*bus.mapper)); // NMI activee
+        tick_to(&mut ppu, &mut bus, (241, 0)); // 1 point avant le VBlank
+        assert!(!ppu.vblank);
+        assert_eq!(ppu.cpu_read_register(0x2002, &mut (*bus.mapper)), 0x00); // lit 0
+        ppu.tick(&mut (*bus.mapper)); // -> (241, 1) : le drapeau n'est PAS mis a 1
+        assert!(!ppu.vblank);
+        assert!(!ppu.nmi_line()); // pas de NMI pour cette image
+        tick_to(&mut ppu, &mut bus, (261, 1)); // fin du VBlank : suppression levee
+        assert!(!ppu.suppress_vbl);
+        tick_to(&mut ppu, &mut bus, (241, 1)); // image suivante : VBlank normal
+        assert!(ppu.vblank);
+        assert!(ppu.nmi_line()); // NMI reactivee pour l'image suivante
+    }
+
+    #[test]
+    fn course_0() {
+        let mut bus = Bus::for_test_with_prg(&[0xA9]);
+        let mut ppu = Ppu::new();
+        ppu.cpu_write_register(0x2000, 0x80, &mut (*bus.mapper)); // NMI activee
+        tick_to(&mut ppu, &mut bus, (241, 1)); // VBlank = 1
+        assert_eq!(ppu.cpu_read_register(0x2002, &mut (*bus.mapper)), 0x80); // lit 1
+        assert!(!ppu.vblank); // efface
+        loop {
+            ppu.tick(&mut (*bus.mapper));
+            assert!(!ppu.nmi_line()); // aucune NMI : nmi_line() faux jusqu'a la fin du VBlank
+            if ppu.position() == (261, 1) {
+                break;
+            }
+        }
+        assert!(!ppu.nmi_suppressed); // suppression levee a la fin du VBlank
+    }
+
+    #[test]
+    fn course_plus_2() {
+        let mut bus = Bus::for_test_with_prg(&[0xA9]);
+        let mut ppu = Ppu::new();
+        ppu.cpu_write_register(0x2000, 0x80, &mut (*bus.mapper)); // NMI activee
+        tick_to(&mut ppu, &mut bus, (241, 0));
+        assert!(!ppu.nmi_line()); // pas encore de VBlank
+        let mut nmi_vu = false;
+        for _ in 0..3 {
+            ppu.tick(&mut (*bus.mapper)); // -> (241, 1), (241, 2), (241, 3)
+            if ppu.nmi_line() {
+                nmi_vu = true; // front montant en (241, 1) : la NMI a eu lieu
+            }
+        }
+        assert!(nmi_vu);
+        assert_eq!(ppu.position(), (241, 3));
+        assert_eq!(ppu.cpu_read_register(0x2002, &mut (*bus.mapper)), 0x80); // lit 1 : au-dela -> normal
+        assert!(!ppu.vblank); // efface
+        assert!(!ppu.nmi_suppressed); // pas de suppression au-dela de (241, 2)
+    }
+
+    #[test]
+    fn nmi_activee_pendant_vblank() {
+        let mut bus = Bus::for_test_with_prg(&[0xA9]);
+        let mut ppu = Ppu::new();
+        tick_to(&mut ppu, &mut bus, (241, 5)); // en plein VBlank, NMI inactivee
+        assert!(!ppu.nmi_line()); // $2000 = 0
+        ppu.cpu_write_register(0x2000, 0x80, &mut (*bus.mapper)); // front montant du bit 7
+        assert!(ppu.nmi_line()); // VBlank + bit 7 -> NMI (front)
     }
 
     #[test]
