@@ -19,6 +19,7 @@ pub mod micro_op;
 pub mod opcodes;
 pub mod operations;
 pub mod ported_steps;
+pub mod trace;
 
 mod exec;
 
