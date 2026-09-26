@@ -84,7 +84,7 @@ pub(crate) fn verifier_invariants(ops: &[u8]) {
 #[cfg(test)]
 mod t1 {
     use super::{run, verifier_invariants};
-    use crate::cpu::exec::{FLAG_N, FLAG_Z};
+    use crate::cpu::exec::{FLAG_C, FLAG_D, FLAG_N, FLAG_V, FLAG_Z};
     use crate::cpu::test_bus::Access;
 
     #[test]
@@ -310,6 +310,111 @@ mod t1 {
             0x86, 0x96, 0x8E, // STX
             0x84, 0x94, 0x8C, // STY
             0xAA, 0xA8, 0x8A, 0x98, 0xBA, 0x9A, // transferts
+        ]);
+    }
+
+    // --- E07a : arithmétique et logique ---
+
+    #[test]
+    fn adc_table() {
+        // (A, M, Cin) → (A, C, V).
+        let cases = [
+            (0x50u8, 0x10u8, false, 0x60u8, false, false),
+            (0x50, 0x50, false, 0xA0, false, true),
+            (0xFF, 0x01, false, 0x00, true, false),
+            (0x80, 0xFF, false, 0x7F, true, true),
+            (0x00, 0x00, true, 0x01, false, false),
+        ];
+        for (a, m, cin, ra, rc, rv) in cases {
+            let (cpu, _) = run(&[0x69, m], |cpu, _| {
+                cpu.a = a;
+                cpu.set_flag(FLAG_C, cin);
+            });
+            assert_eq!(cpu.a, ra, "A={:02X} M={:02X} C={}", a, m, cin);
+            assert_eq!(
+                cpu.flag(FLAG_C),
+                rc,
+                "C : A={:02X} M={:02X} C={}",
+                a,
+                m,
+                cin
+            );
+            assert_eq!(
+                cpu.flag(FLAG_V),
+                rv,
+                "V : A={:02X} M={:02X} C={}",
+                a,
+                m,
+                cin
+            );
+        }
+        // (FF, 01, 0) → Z = 1.
+        let (cpu, _) = run(&[0x69, 0x01], |cpu, _| {
+            cpu.a = 0xFF;
+            cpu.set_flag(FLAG_C, false);
+        });
+        assert!(cpu.flag(FLAG_Z));
+    }
+
+    #[test]
+    fn sbc_table() {
+        // (A, M, Cin) → (A, C, V).
+        let cases = [
+            (0x50u8, 0xF0u8, true, 0x60u8, false, false),
+            (0x50, 0xB0, true, 0xA0, false, true),
+            (0xD0, 0x70, true, 0x60, true, true),
+            (0x05, 0x05, false, 0xFF, false, false),
+        ];
+        for (a, m, cin, ra, rc, rv) in cases {
+            let (cpu, _) = run(&[0xE9, m], |cpu, _| {
+                cpu.a = a;
+                cpu.set_flag(FLAG_C, cin);
+            });
+            assert_eq!(cpu.a, ra, "A={:02X} M={:02X} C={}", a, m, cin);
+            assert_eq!(
+                cpu.flag(FLAG_C),
+                rc,
+                "C : A={:02X} M={:02X} C={}",
+                a,
+                m,
+                cin
+            );
+            assert_eq!(
+                cpu.flag(FLAG_V),
+                rv,
+                "V : A={:02X} M={:02X} C={}",
+                a,
+                m,
+                cin
+            );
+        }
+    }
+
+    #[test]
+    fn mode_decimal_ignore() {
+        // D = 1 : pas de mode décimal sur le 2A03 — ADC reste binaire.
+        let (cpu, _) = run(&[0x69, 0x01], |cpu, _| {
+            cpu.a = 0x09;
+            cpu.set_flag(FLAG_D, true);
+        });
+        assert_eq!(cpu.a, 0x0A);
+    }
+
+    #[test]
+    fn and_zero() {
+        let (cpu, _) = run(&[0x29, 0x0F], |cpu, _| cpu.a = 0xF0);
+        assert_eq!(cpu.a, 0);
+        assert!(cpu.flag(FLAG_Z));
+    }
+
+    #[test]
+    fn invariants_e07a() {
+        verifier_invariants(&[
+            0x69, 0x65, 0x75, 0x6D, 0x7D, 0x79, 0x61, 0x71, // ADC
+            0xE9, 0xE5, 0xF5, 0xED, 0xFD, 0xF9, 0xE1, 0xF1, // SBC
+            0x29, 0x25, 0x35, 0x2D, 0x3D, 0x39, 0x21, 0x31, // AND
+            0x09, 0x05, 0x15, 0x0D, 0x1D, 0x19, 0x01, 0x11, // ORA
+            0x49, 0x45, 0x55, 0x4D, 0x5D, 0x59, 0x41, 0x51, // EOR
         ]);
     }
 }

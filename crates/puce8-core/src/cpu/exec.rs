@@ -1,4 +1,4 @@
-//! Exécution des micro-ops et des opérations (E04b : reset, NOP, JAM ; E05a : adressage en lecture + LDA ; E05b : écriture/RMW + sondes STA/INC ; E06a : load/store/transferts).
+//! Exécution des micro-ops et des opérations (E04b : reset, NOP, JAM ; E05a : adressage en lecture + LDA ; E05b : écriture/RMW + sondes STA/INC ; E06a : load/store/transferts ; E07a : ADC/SBC/AND/ORA/EOR).
 
 use super::micro_op::{Flow, MicroOp};
 use super::operations::Operation;
@@ -200,7 +200,7 @@ impl super::Cpu {
         }
     }
 
-    /// « Quoi » d'une lecture (E05a : LDA ; E06a : LDX/LDY).
+    /// « Quoi » d'une lecture (E05a : LDA ; E06a : LDX/LDY ; E07a : ADC/SBC/AND/ORA/EOR).
     pub(crate) fn exec_read(&mut self, op: Operation, value: u8) {
         match op {
             Operation::Lda => {
@@ -214,6 +214,20 @@ impl super::Cpu {
             Operation::Ldy => {
                 self.y = value;
                 self.set_zn(value); // N, Z
+            }
+            Operation::Adc => self.add_with_carry(value),
+            Operation::Sbc => self.add_with_carry(value ^ 0xFF), // SBC = ADC avec M ^ 0xFF (D ignoré)
+            Operation::And => {
+                self.a &= value;
+                self.set_zn(self.a); // N, Z
+            }
+            Operation::Ora => {
+                self.a |= value;
+                self.set_zn(self.a); // N, Z
+            }
+            Operation::Eor => {
+                self.a ^= value;
+                self.set_zn(self.a); // N, Z
             }
             other => unimplemented!("{:?}", other),
         }
@@ -241,10 +255,28 @@ impl super::Cpu {
         }
     }
 
+    // ---------- Arithmétique (E07a) ----------
+
+    /// ADC/SBC : sum = A + m + C (16 bits). Pose C, V, N, Z ; A = octet bas de sum.
+    /// Réutilisée par RRA et ISB (E11).
+    pub(crate) fn add_with_carry(&mut self, m: u8) {
+        let cin = if self.flag(FLAG_C) { 1 } else { 0 };
+        let sum = u16::from(self.a)
+            .wrapping_add(u16::from(m))
+            .wrapping_add(cin);
+        self.set_flag(FLAG_C, sum > 0xFF);
+        self.set_flag(
+            FLAG_V,
+            ((u16::from(self.a) ^ sum) & (u16::from(m) ^ sum) & 0x80) != 0,
+        );
+        let a = sum as u8;
+        self.a = a;
+        self.set_zn(a); // N, Z
+    }
+
     // ---------- Aides sur les flags ----------
 
     /// Teste un bit de P.
-    #[cfg_attr(not(test), expect(dead_code, reason = "utilisé à partir de E05"))]
     pub(crate) const fn flag(&self, mask: u8) -> bool {
         self.p & mask != 0
     }
