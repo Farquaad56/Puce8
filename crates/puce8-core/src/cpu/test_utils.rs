@@ -830,4 +830,54 @@ mod t1 {
         let (_, bus) = run(&[0x0C, 0x02, 0x20], |_, _| {});
         assert!(bus.log.contains(&Access::Read(0x2002, 0))); // la lecture a bien lieu
     }
+
+    // --- E11b : non officiels immédiats + LAS ---
+
+    #[test]
+    fn anc() {
+        let (cpu, _) = run(&[0x0B, 0x80], |cpu, _| cpu.a = 0xFF);
+        assert_eq!(cpu.a, 0x80); // A &= M
+        assert!(cpu.flag(FLAG_C)); // bit 7 du résultat posé
+        assert!(cpu.flag(FLAG_N));
+    }
+
+    #[test]
+    fn alr() {
+        let (cpu, _) = run(&[0x4B, 0x03], |cpu, _| cpu.a = 0xFF);
+        assert_eq!(cpu.a, 0x01); // A &= M puis LSR(A) : 03 >> 1
+        assert!(cpu.flag(FLAG_C)); // bit 0 de (A & M) posé avant décalage
+    }
+
+    #[test]
+    fn arr() {
+        let (cpu, _) = run(&[0x6B, 0xFF], |cpu, _| {
+            cpu.a = 0xFF;
+            cpu.set_flag(FLAG_C, true);
+        });
+        assert_eq!(cpu.a, 0xFF); // ((FF & FF) >> 1) | (C << 7)
+        assert!(cpu.flag(FLAG_C)); // bit 6 du résultat posé
+        assert!(!cpu.flag(FLAG_V)); // bits 5 et 6 égaux
+    }
+
+    #[test]
+    fn axs() {
+        let (cpu, _) = run(&[0xCB, 0x02], |cpu, _| {
+            cpu.a = 0x0F;
+            cpu.x = 0x07;
+        });
+        assert_eq!(cpu.x, 0x05); // X = (A & X) - M : 07 - 02
+        assert!(cpu.flag(FLAG_C)); // A & X >= M
+    }
+
+    #[test]
+    fn lxa() {
+        let (cpu, _) = run(&[0xAB, 0x5A], |_, _| {});
+        assert_eq!(cpu.a, 0x5A);
+        assert_eq!(cpu.x, 0x5A);
+    }
+
+    #[test]
+    fn invariants_e11b() {
+        verifier_invariants(&[0x0B, 0x2B, 0x4B, 0x6B, 0xCB, 0xAB, 0x8B, 0xBB]);
+    }
 }

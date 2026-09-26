@@ -370,7 +370,8 @@ impl super::Cpu {
         }
     }
 
-    /// « Quoi » d'une lecture (E05a : LDA ; E06a : LDX/LDY ; E07a : ADC/SBC/AND/ORA/EOR ; E07b : CMP/CPX/CPY/BIT).
+    /// « Quoi » d'une lecture (E05a : LDA ; E06a : LDX/LDY ; E07a : ADC/SBC/AND/ORA/EOR ; E07b : CMP/CPX/CPY/BIT ;
+    /// E11a : LAX/NOP ; E11b : ANC/ALR/ARR/AXS/LXA/XAA/LAS).
     pub(crate) fn exec_read(&mut self, op: Operation, value: u8) {
         match op {
             Operation::Lda => {
@@ -413,6 +414,51 @@ impl super::Cpu {
                 self.a = value;
                 self.x = value;
                 self.set_zn(value); // N, Z
+            }
+            Operation::Anc => {
+                // E11b : A &= M ; N, Z ; C = bit 7 du résultat (0B/2B).
+                self.a &= value;
+                self.set_zn(self.a); // N, Z
+                self.set_flag(FLAG_C, self.a & 0x80 != 0);
+            }
+            Operation::Alr => {
+                // E11b : A &= M ; LSR(A) (4B).
+                self.a &= value;
+                self.a = self.lsr(self.a);
+            }
+            Operation::Arr => {
+                // E11b : A = ((A & M) >> 1) | (C << 7) ; N, Z ; C = bit 6 ; V = bits 5–6 différents (6B).
+                let c = self.flag(FLAG_C) as u8;
+                self.a = ((self.a & value) >> 1) | (c << 7);
+                self.set_zn(self.a); // N, Z
+                self.set_flag(FLAG_C, self.a & 0x40 != 0);
+                self.set_flag(FLAG_V, ((self.a >> 6) ^ (self.a >> 5)) & 1 != 0);
+            }
+            Operation::Axs => {
+                // E11b : t = A & X ; C = t >= M ; X = t - M ; N, Z sur X (CB).
+                let t = self.a & self.x;
+                self.set_flag(FLAG_C, t >= value);
+                self.x = t.wrapping_sub(value);
+                self.set_zn(self.x); // N, Z
+            }
+            Operation::Lxa => {
+                // E11b : A = X = M ; N, Z (AB).
+                self.a = value;
+                self.x = value;
+                self.set_zn(value); // N, Z
+            }
+            Operation::Xaa => {
+                // E11b : A = X & M ; N, Z (8B).
+                self.a = self.x & value;
+                self.set_zn(self.a); // N, Z
+            }
+            Operation::Las => {
+                // E11b : v = M & S ; A = X = S = v ; N, Z (BB).
+                let v = value & self.s;
+                self.a = v;
+                self.x = v;
+                self.s = v;
+                self.set_zn(v); // N, Z
             }
             Operation::Nop => {} // E11a : NOP avec opérande — la lecture a lieu, aucun effet
             other => unimplemented!("{:?}", other),
