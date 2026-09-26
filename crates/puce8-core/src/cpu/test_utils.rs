@@ -417,4 +417,53 @@ mod t1 {
             0x49, 0x45, 0x55, 0x4D, 0x5D, 0x59, 0x41, 0x51, // EOR
         ]);
     }
+
+    // --- E07b : comparaisons, BIT, inc/dec registres ---
+
+    #[test]
+    fn cmp_egal() {
+        let (cpu, _) = run(&[0xC9, 0x05], |cpu, _| cpu.a = 5);
+        assert!(cpu.flag(FLAG_Z));
+        assert!(cpu.flag(FLAG_C));
+        assert!(!cpu.flag(FLAG_N));
+    }
+
+    #[test]
+    fn cmp_inferieur() {
+        let (cpu, _) = run(&[0xC9, 0x05], |cpu, _| cpu.a = 4);
+        assert!(!cpu.flag(FLAG_Z));
+        assert!(!cpu.flag(FLAG_C));
+        assert!(cpu.flag(FLAG_N));
+    }
+
+    #[test]
+    fn bit_flags() {
+        let (cpu, _) = run(&[0x24, 0x10], |cpu, bus| {
+            cpu.a = 0x01;
+            bus.load(0x10, &[0xC0]);
+        });
+        assert_eq!(cpu.a, 0x01); // A inchangé
+        assert!(cpu.flag(FLAG_Z));
+        assert!(cpu.flag(FLAG_N));
+        assert!(cpu.flag(FLAG_V));
+    }
+
+    #[test]
+    fn dex_wrap() {
+        let (cpu, _) = run(&[0xCA], |cpu, _| cpu.x = 0);
+        assert_eq!(cpu.x, 0xFF);
+        assert!(cpu.flag(FLAG_N));
+        assert!(!cpu.flag(FLAG_Z));
+    }
+
+    #[test]
+    fn invariants_e07b() {
+        verifier_invariants(&[
+            0xC9, 0xC5, 0xD5, 0xCD, 0xDD, 0xD9, 0xC1, 0xD1, // CMP
+            0xE0, 0xE4, 0xEC, // CPX
+            0xC0, 0xC4, 0xCC, // CPY
+            0x24, 0x2C, // BIT
+            0xE8, 0xC8, 0xCA, 0x88, // INX/INY/DEX/DEY
+        ]);
+    }
 }

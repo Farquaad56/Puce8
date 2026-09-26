@@ -1,4 +1,4 @@
-//! Exécution des micro-ops et des opérations (E04b : reset, NOP, JAM ; E05a : adressage en lecture + LDA ; E05b : écriture/RMW + sondes STA/INC ; E06a : load/store/transferts ; E07a : ADC/SBC/AND/ORA/EOR).
+//! Exécution des micro-ops et des opérations (E04b : reset, NOP, JAM ; E05a : adressage en lecture + LDA ; E05b : écriture/RMW + sondes STA/INC ; E06a : load/store/transferts ; E07a : ADC/SBC/AND/ORA/EOR ; E07b : CMP/CPX/CPY, BIT, INX/INY/DEX/DEY).
 
 use super::micro_op::{Flow, MicroOp};
 use super::operations::Operation;
@@ -171,7 +171,7 @@ impl super::Cpu {
         Flow::Next
     }
 
-    /// « Quoi » d'une instruction implicite (E04b : NOP ; E06a : transferts).
+    /// « Quoi » d'une instruction implicite (E04b : NOP ; E06a : transferts ; E07b : INX/INY/DEX/DEY).
     pub(crate) fn exec_implied(&mut self, op: Operation) {
         match op {
             Operation::Nop => {}
@@ -196,11 +196,27 @@ impl super::Cpu {
                 self.set_zn(self.x); // N, Z
             }
             Operation::Txs => self.s = self.x, // aucun flag
+            Operation::Inx => {
+                self.x = self.x.wrapping_add(1);
+                self.set_zn(self.x); // N, Z
+            }
+            Operation::Iny => {
+                self.y = self.y.wrapping_add(1);
+                self.set_zn(self.y); // N, Z
+            }
+            Operation::Dex => {
+                self.x = self.x.wrapping_sub(1);
+                self.set_zn(self.x); // N, Z
+            }
+            Operation::Dey => {
+                self.y = self.y.wrapping_sub(1);
+                self.set_zn(self.y); // N, Z
+            }
             other => unimplemented!("{:?}", other),
         }
     }
 
-    /// « Quoi » d'une lecture (E05a : LDA ; E06a : LDX/LDY ; E07a : ADC/SBC/AND/ORA/EOR).
+    /// « Quoi » d'une lecture (E05a : LDA ; E06a : LDX/LDY ; E07a : ADC/SBC/AND/ORA/EOR ; E07b : CMP/CPX/CPY/BIT).
     pub(crate) fn exec_read(&mut self, op: Operation, value: u8) {
         match op {
             Operation::Lda => {
@@ -228,6 +244,15 @@ impl super::Cpu {
             Operation::Eor => {
                 self.a ^= value;
                 self.set_zn(self.a); // N, Z
+            }
+            Operation::Cmp => self.compare(self.a, value),
+            Operation::Cpx => self.compare(self.x, value),
+            Operation::Cpy => self.compare(self.y, value),
+            Operation::Bit => {
+                // A inchangé ; C non touché.
+                self.set_flag(FLAG_Z, (self.a & value) == 0);
+                self.set_flag(FLAG_N, value & 0x80 != 0);
+                self.set_flag(FLAG_V, value & 0x40 != 0);
             }
             other => unimplemented!("{:?}", other),
         }
@@ -272,6 +297,15 @@ impl super::Cpu {
         let a = sum as u8;
         self.a = a;
         self.set_zn(a); // N, Z
+    }
+
+    // ---------- Comparaisons (E07b) ----------
+
+    /// CMP/CPX/CPY : r = reg - M (wrapping) ; C = reg >= M ; Z = reg == M ; N = bit 7 de r.
+    pub(crate) fn compare(&mut self, reg: u8, m: u8) {
+        let r = reg.wrapping_sub(m);
+        self.set_flag(FLAG_C, reg >= m);
+        self.set_zn(r); // N, Z (r == 0 ⇔ reg == M)
     }
 
     // ---------- Aides sur les flags ----------
