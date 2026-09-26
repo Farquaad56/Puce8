@@ -3,6 +3,7 @@
 
 use crate::cartridge::{Cartridge, RomError};
 use crate::cpu::CpuBus;
+use crate::dma::{OamDma, GET_PARITY};
 use crate::mapper::{create_mapper, Mapper, Mirroring};
 use crate::ppu::Ppu;
 
@@ -18,6 +19,8 @@ pub struct Bus {
     pub open_bus: u8,
     /// Compteur de cycles CPU (cadence plus tard par Nes::tick).
     pub cpu_cycles: u64,
+    /// DMA OAM en cours (E16b) : vole des cycles au CPU apres une ecriture $4014.
+    pub dma: OamDma,
 }
 
 impl Bus {
@@ -28,7 +31,50 @@ impl Bus {
             ppu: Ppu::new(),
             open_bus: 0,
             cpu_cycles: 0,
+            dma: OamDma::Idle,
         }
+    }
+
+    /// Vrai si la DMA prend ce cycle a la place du CPU.
+    pub fn dma_halts_cpu(&self, cpu_next_is_read: bool) -> bool {
+        match self.dma {
+            OamDma::Idle => false,
+            OamDma::Requested(_) => cpu_next_is_read, // l'arret attend une lecture du CPU
+            _ => true,
+        }
+    }
+
+    /// Un cycle de DMA. `c = self.cpu_cycles` est le numero du cycle en cours
+    /// (Nes::tick l'incremente APRES). Transitions EXACTES :
+    pub fn dma_tick(&mut self) {
+        let c = self.cpu_cycles;
+        let is_get = |n: u64| n % 2 == GET_PARITY;
+        self.dma = match self.dma {
+            OamDma::Idle => OamDma::Idle,
+            // Cycle d'arret. SIMPLIFICATION: aucun acces bus (revu en E36).
+            OamDma::Requested(p) | OamDma::Halt(p) => {
+                if is_get(c + 1) {
+                    OamDma::Get { page: p, i: 0 }
+                } else {
+                    OamDma::Align(p)
+                }
+            }
+            // Cycle d'alignement. SIMPLIFICATION: aucun acces bus (revu en E36).
+            OamDma::Align(p) => OamDma::Get { page: p, i: 0 },
+            OamDma::Get { page, i } => {
+                let v = self.read(u16::from(page) << 8 | u16::from(i));
+                OamDma::Put { page, i, v }
+            }
+            OamDma::Put { page, i, v } => {
+                // $2004 : oam[oam_addr] = v ; oam_addr += 1
+                self.ppu.cpu_write_register(4, v, self.mapper.as_mut());
+                if i == 0xFF {
+                    OamDma::Idle
+                } else {
+                    OamDma::Get { page, i: i + 1 }
+                }
+            }
+        };
     }
 
     /// Construit un bus a partir d'une cartouche (E13b).
@@ -93,6 +139,11 @@ impl CpuBus for Bus {
             0x2000..=0x3FFF => {
                 self.ppu
                     .cpu_write_register(addr & 7, value, self.mapper.as_mut());
+                self.open_bus = value;
+            }
+            // $4014 : demande de DMA OAM (E16b) ; la derniere ecriture gagne.
+            0x4014 => {
+                self.dma.request_oam(value);
                 self.open_bus = value;
             }
             // $4000-$401F : APU (stubs).
@@ -175,5 +226,78 @@ mod tests {
             let _ = bus.peek(0x8000 + i);
         }
         assert_eq!(bus.open_bus, 0xA9);
+    }
+
+    /// Fait courir la DMA jusqu'a son retour a l'etat Idle ; renvoie le nombre de cycles.
+    fn run_dma(bus: &mut Bus) -> u64 {
+        let start = bus.cpu_cycles;
+        while bus.dma_halts_cpu(true) {
+            bus.dma_tick();
+            bus.cpu_cycles += 1;
+        }
+        bus.cpu_cycles - start
+    }
+
+    #[test]
+    fn dma_copie() {
+        let mut bus = Bus::for_test_with_prg(&[0xA9]);
+        for i in 0..=255u8 {
+            bus.ram[0x200 + usize::from(i)] = i; // page $02 : ram[$0200+i] = i
+        }
+        bus.write(0x4014, 0x02);
+        run_dma(&mut bus);
+        for i in 0..=255usize {
+            assert_eq!(bus.ppu.oam[i], i as u8);
+        }
+    }
+
+    #[test]
+    fn dma_oam_addr() {
+        let mut bus = Bus::for_test_with_prg(&[0xA9]);
+        bus.write(0x2003, 0x10); // oam_addr = $10
+        for i in 0..=255u8 {
+            bus.ram[0x200 + usize::from(i)] = i;
+        }
+        bus.write(0x4014, 0x02);
+        run_dma(&mut bus);
+        for i in 0..=255usize {
+            assert_eq!(bus.ppu.oam[(0x10 + i) & 0xFF], i as u8);
+        }
+        assert_eq!(bus.ppu.regs.oam_addr, 0x10); // 256 increments = tour complet
+    }
+
+    #[test]
+    fn dma_derniere_page() {
+        let mut bus = Bus::for_test_with_prg(&[0xA9]);
+        bus.write(0x4014, 0x02);
+        bus.write(0x4014, 0x03); // la derniere ecriture gagne
+        assert_eq!(bus.dma, OamDma::Requested(0x03));
+    }
+
+    #[test]
+    fn dma_attend_lecture_bus() {
+        let mut bus = Bus::for_test_with_prg(&[0xA9]);
+        bus.write(0x4014, 2);
+        assert!(!bus.dma_halts_cpu(false)); // pas de lecture CPU -> la DMA ne prend pas le cycle
+        assert!(bus.dma_halts_cpu(true)); // lecture CPU -> la DMA prend le cycle
+    }
+
+    #[test]
+    fn dma_parite() {
+        let mut bus = Bus::for_test_with_prg(&[0xA9]);
+        for i in 0..=255u8 {
+            bus.ram[0x200 + usize::from(i)] = i;
+        }
+        bus.cpu_cycles = 11; // cycle impair (put) : pas d'alignement -> 513
+        bus.write(0x4014, 0x02);
+        assert_eq!(run_dma(&mut bus), 513);
+
+        let mut bus = Bus::for_test_with_prg(&[0xA9]);
+        for i in 0..=255u8 {
+            bus.ram[0x200 + usize::from(i)] = i;
+        }
+        bus.cpu_cycles = 10; // cycle pair (get) : alignement -> 514
+        bus.write(0x4014, 0x02);
+        assert_eq!(run_dma(&mut bus), 514);
     }
 }
