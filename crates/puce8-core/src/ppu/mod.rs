@@ -87,8 +87,14 @@ impl Ppu {
     }
 
     /// Ecriture CPU d'un registre PPU (reg = addr & 7).
-    pub fn cpu_write_register(&mut self, reg: u16, v: u8, _mapper: &mut dyn Mapper) {
-        self.regs.write(usize::from(reg & 0x07) as u8, v);
+    pub fn cpu_write_register(&mut self, reg: u16, v: u8, mapper: &mut dyn Mapper) {
+        let r = usize::from(reg & 0x07);
+        // Deuxieme ecriture $2006 : notifier le mapper avec la nouvelle adresse v.
+        let second_2006 = r == 6 && self.regs.w;
+        self.regs.write(r as u8, v);
+        if second_2006 {
+            mapper.notify_ppu_address(self.regs.v);
+        }
     }
 
     /// Ligne NMI : VBlank active et bit 7 de $2000 pose.
@@ -113,6 +119,42 @@ impl Ppu {
 mod tests {
     use super::*;
     use crate::bus::Bus;
+    use crate::mapper::Mirroring;
+
+    /// Mapper de test : memorise la derniere adresse PPU notifiee.
+    struct MapperNotif {
+        last: Option<u16>,
+    }
+
+    impl Mapper for MapperNotif {
+        fn cpu_read(&mut self, _addr: u16) -> Option<u8> {
+            None
+        }
+        fn cpu_peek(&self, _addr: u16) -> Option<u8> {
+            None
+        }
+        fn cpu_write(&mut self, _addr: u16, _value: u8) {}
+        fn ppu_read(&mut self, _addr: u16) -> u8 {
+            0
+        }
+        fn ppu_write(&mut self, _addr: u16, _value: u8) {}
+        fn mirroring(&self) -> Mirroring {
+            Mirroring::Horizontal
+        }
+        fn notify_ppu_address(&mut self, addr: u16) {
+            self.last = Some(addr);
+        }
+    }
+
+    #[test]
+    fn notif_2006_deuxieme_ecriture() {
+        let mut ppu = Ppu::new();
+        let mut m = MapperNotif { last: None };
+        ppu.cpu_write_register(0x2006, 0x21, &mut m); // 1re ecriture : pas de notification
+        assert_eq!(m.last, None);
+        ppu.cpu_write_register(0x2006, 0x08, &mut m); // 2e ecriture : v = $2108 notifie
+        assert_eq!(m.last, Some(0x2108));
+    }
 
     /// Tick jusqu'a la position visee (toujours atteignable en moins d'une image).
     fn tick_to(ppu: &mut Ppu, bus: &mut Bus, target: (u16, u16)) {
