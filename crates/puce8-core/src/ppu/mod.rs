@@ -6,6 +6,7 @@
 // wiki: PPU_scrolling ; wiki: PPU_masks_and_control
 
 pub mod background;
+pub mod palette;
 pub mod registers;
 
 use crate::mapper::{Mapper, Mirroring};
