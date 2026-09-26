@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use puce8_core::nes::Nes;
 
 #[derive(serde::Serialize)]
@@ -12,7 +13,15 @@ pub struct Resultat {
     pub hash: Option<String>,
 }
 
-fn make_result(rom: &str, protocole: &str, resultat: &str, code: i32, texte: &str, frames: u32, cycles: u64) -> Resultat {
+fn make_result(
+    rom: &str,
+    protocole: &str,
+    resultat: &str,
+    code: i32,
+    texte: &str,
+    frames: u32,
+    cycles: u64,
+) -> Resultat {
     Resultat {
         rom: rom.to_string(),
         protocole: protocole.to_string(),
@@ -50,13 +59,14 @@ pub fn run_blargg6000(nes: &mut Nes, max_frames: u32) -> Resultat {
         }
 
         // Check for signature at $6001-$6003: DE B0 61
-        let sig_ok = nes.peek(0x6001) == 0xDE && nes.peek(0x6002) == 0xB0 && nes.peek(0x6003) == 0x61;
+        let sig_ok =
+            nes.peek(0x6001) == 0xDE && nes.peek(0x6002) == 0xB0 && nes.peek(0x6003) == 0x61;
 
         if !sig_ok {
             // No signature yet, run one frame and check again
             let start = nes.bus.cpu_cycles;
             nes.run_frame();
-            cycles += (nes.bus.cpu_cycles - start) as u64;
+            cycles += nes.bus.cpu_cycles - start;
             frames += 1;
             continue;
         }
@@ -67,14 +77,14 @@ pub fn run_blargg6000(nes: &mut Nes, max_frames: u32) -> Resultat {
             // Wait one frame (loop on $2002)
             let start = nes.bus.cpu_cycles;
             nes.run_frame();
-            cycles += (nes.bus.cpu_cycles - start) as u64;
+            cycles += nes.bus.cpu_cycles - start;
             frames += 1;
         } else if status == 0x81 {
             // Run 6 frames then reset
             for _ in 0..6 {
                 let start = nes.bus.cpu_cycles;
                 nes.run_frame();
-                cycles += (nes.bus.cpu_cycles - start) as u64;
+                cycles += nes.bus.cpu_cycles - start;
                 frames += 1;
             }
             nes.reset();
@@ -84,7 +94,15 @@ pub fn run_blargg6000(nes: &mut Nes, max_frames: u32) -> Resultat {
             if status == 0 {
                 return make_result(&rom, "blargg6000", "REUSSI", 0, &texte, frames, cycles);
             } else {
-                return make_result(&rom, "blargg6000", "ECHEC", status as i32, &texte, frames, cycles);
+                return make_result(
+                    &rom,
+                    "blargg6000",
+                    "ECHEC",
+                    status as i32,
+                    &texte,
+                    frames,
+                    cycles,
+                );
             }
         }
     }
@@ -97,7 +115,7 @@ pub fn run_blargg_f8(nes: &mut Nes, frames: u32) -> Resultat {
     for _ in 0..frames {
         let start = nes.bus.cpu_cycles;
         nes.run_frame();
-        total_cycles += (nes.bus.cpu_cycles - start) as u64;
+        total_cycles += nes.bus.cpu_cycles - start;
     }
 
     let code = nes.peek(0x00F8) as i32;
@@ -119,12 +137,12 @@ mod tests {
         rom.extend_from_slice(&[0; 10]); // bit7-4 flags6 + 8 reserved + bit3-0 flags7 (total header=16)
 
         let mut prg_data = vec![0xEA; 16384]; // fill with NOPs
-        // Place test code at $8000 (offset 0 in PRG data)
+                                              // Place test code at $8000 (offset 0 in PRG data)
         prg_data[..prg.len()].copy_from_slice(prg);
 
         // Set up reset vector at $FFFC-$FFFD -> $8000 (offsets 16380/16381 in prg_data)
         let vec_offset = 16384 - 4;
-        prg_data[vec_offset]     = 0x00; // low byte of $8000 ($FFFC)
+        prg_data[vec_offset] = 0x00; // low byte of $8000 ($FFFC)
         prg_data[vec_offset + 1] = 0x80; // high byte of $8000 ($FFFD)
 
         rom.extend_from_slice(&prg_data);
@@ -135,39 +153,58 @@ mod tests {
     fn test_blargg6000_success() {
         // ROM writes blargg signature and signals success with text "OK"
         let prg = [
-            0xA2, 0xDE,       // LDX #$DE
+            0xA2, 0xDE, // LDX #$DE
             0x8E, 0x01, 0x60, // STX $6001
-            0xA2, 0xB0,       // LDX #$B0
+            0xA2, 0xB0, // LDX #$B0
             0x8E, 0x02, 0x60, // STX $6002
-            0xA2, 0x61,       // LDX #$61
+            0xA2, 0x61, // LDX #$61
             0x8E, 0x03, 0x60, // STX $6003
-            0xA9, 0x00,       // LDA #$00 (success)
+            0xA9, 0x00, // LDA #$00 (success)
             0x8D, 0x00, 0x60, // STA $6000
-            0xA9, 0x4F,       // LDA 'O'
+            0xA9, 0x4F, // LDA 'O'
             0x8D, 0x04, 0x60, // STA $6004
-            0xA9, 0x4B,       // LDA 'K'
+            0xA9, 0x4B, // LDA 'K'
             0x8D, 0x05, 0x60, // STA $6005
-            0xA9, 0x00,       // null terminator
+            0xA9, 0x00, // null terminator
             0x8D, 0x06, 0x60, // STA $6006
-            0xFF,               // BRA +0 (loop forever)
+            0xFF, // BRA +0 (loop forever)
         ];
 
         let rom = build_rom(&prg);
         eprintln!("DEBUG: ROM size={}", rom.len());
         eprintln!("DEBUG: header bytes: {:02x} {:02x} {:02x} {:02x} | {:02x} {:02x} {:02x} {:02x} | {:02x} {:02x} {:02x} {:02x}",
                   rom[0], rom[1], rom[2], rom[3], rom[4], rom[5], rom[6], rom[7], rom[8], rom[9], rom[10], rom[11]);
-        eprintln!("DEBUG: bytes 12-20: {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}",
-                  rom[12], rom[13], rom[14], rom[15], rom[16], rom[17], rom[18], rom[19], rom[20]);
-        eprintln!("DEBUG: vec bytes at rom[{}]={:#02x} rom[{}]={:#02x}", 16+16380, rom[16+16380], 16+16381, rom[16+16381]);
+        eprintln!(
+            "DEBUG: bytes 12-20: {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}",
+            rom[12], rom[13], rom[14], rom[15], rom[16], rom[17], rom[18], rom[19], rom[20]
+        );
+        eprintln!(
+            "DEBUG: vec bytes at rom[{}]={:#x} rom[{}]={:#x}",
+            16 + 16380,
+            rom[16 + 16380],
+            16 + 16381,
+            rom[16 + 16381]
+        );
         let mut nes = Nes::from_rom(&rom).expect("valid ROM");
-        eprintln!("DEBUG: PC={:#06x} jammed={} cycles={}", nes.cpu.pc, nes.cpu.jammed, nes.cpu.cycles);
+        eprintln!(
+            "DEBUG: PC={:#06x} jammed={} cycles={}",
+            nes.cpu.pc, nes.cpu.jammed, nes.cpu.cycles
+        );
         // Run enough cycles for the code to execute (it's short)
         for _ in 0..100 {
             nes.tick();
         }
-        eprintln!("DEBUG: $6000={:#04x} $6001={:#04x} $6002={:#04x} $6003={:#04x}",
-                  nes.peek(0x6000), nes.peek(0x6001), nes.peek(0x6002), nes.peek(0x6003));
-        eprintln!("DEBUG: PC={:#06x} jammed={} cycles={}", nes.cpu.pc, nes.cpu.jammed, nes.cpu.cycles);
+        eprintln!(
+            "DEBUG: $6000={:#04x} $6001={:#04x} $6002={:#04x} $6003={:#04x}",
+            nes.peek(0x6000),
+            nes.peek(0x6001),
+            nes.peek(0x6002),
+            nes.peek(0x6003)
+        );
+        eprintln!(
+            "DEBUG: PC={:#06x} jammed={} cycles={}",
+            nes.cpu.pc, nes.cpu.jammed, nes.cpu.cycles
+        );
         let result = run_blargg6000(&mut nes, 100);
         assert_eq!(result.resultat, "REUSSI");
         assert_eq!(result.code, 0);
@@ -178,15 +215,15 @@ mod tests {
     fn test_blargg6000_failure() {
         // ROM signals failure with code 3
         let prg = [
-            0xA2, 0xDE,       // LDX #$DE
+            0xA2, 0xDE, // LDX #$DE
             0x8E, 0x01, 0x60, // STX $6001
-            0xA2, 0xB0,       // LDX #$B0
+            0xA2, 0xB0, // LDX #$B0
             0x8E, 0x02, 0x60, // STX $6002
-            0xA2, 0x61,       // LDX #$61
+            0xA2, 0x61, // LDX #$61
             0x8E, 0x03, 0x60, // STX $6003
-            0xA9, 0x03,       // LDA #$03 (error code)
+            0xA9, 0x03, // LDA #$03 (error code)
             0x8D, 0x00, 0x60, // STA $6000
-            0xFF,               // BRA +0 (loop forever)
+            0xFF, // BRA +0 (loop forever)
         ];
 
         let rom = build_rom(&prg);
@@ -203,13 +240,13 @@ mod tests {
     fn test_read_c_string() {
         // ROM writes a string to $6010
         let prg = [
-            0xA9, 0x48,       // LDA 'H'
+            0xA9, 0x48, // LDA 'H'
             0x8D, 0x10, 0x60, // STA $6010
-            0xA9, 0x69,       // LDA 'i'
+            0xA9, 0x69, // LDA 'i'
             0x8D, 0x11, 0x60, // STA $6011
-            0xA9, 0x00,       // null
+            0xA9, 0x00, // null
             0x8D, 0x12, 0x60, // STA $6012
-            0xFF,               // BRA +0 (loop forever)
+            0xFF, // BRA +0 (loop forever)
         ];
 
         let rom = build_rom(&prg);
