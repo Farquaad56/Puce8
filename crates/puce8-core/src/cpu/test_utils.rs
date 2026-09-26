@@ -13,9 +13,18 @@ pub(crate) fn run(code: &[u8], setup: impl FnOnce(&mut Cpu, &mut TestBus)) -> (C
 
 /// Comme `run`, mais renvoie aussi le nombre de ticks de l'instruction.
 fn run_ticks(code: &[u8], setup: impl FnOnce(&mut Cpu, &mut TestBus)) -> (Cpu, TestBus, u32) {
+    run_at(0x0600, code, setup)
+}
+
+/// Comme `run_ticks`, mais charge le programme en `addr` (vecteur de reset = addr).
+fn run_at(
+    addr: u16,
+    code: &[u8],
+    setup: impl FnOnce(&mut Cpu, &mut TestBus),
+) -> (Cpu, TestBus, u32) {
     let mut bus = TestBus::new();
-    bus.set_vector(0xFFFC, 0x0600);
-    bus.load(0x0600, code);
+    bus.set_vector(0xFFFC, addr);
+    bus.load(addr, code);
     let mut cpu = Cpu::new();
     for _ in 0..7 {
         cpu.tick(&mut bus);
@@ -83,7 +92,7 @@ pub(crate) fn verifier_invariants(ops: &[u8]) {
 
 #[cfg(test)]
 mod t1 {
-    use super::{run, verifier_invariants};
+    use super::{run, run_at, run_ticks, verifier_invariants};
     use crate::cpu::exec::{FLAG_C, FLAG_D, FLAG_N, FLAG_V, FLAG_Z};
     use crate::cpu::test_bus::Access;
 
@@ -560,5 +569,61 @@ mod t1 {
             0xE6, 0xF6, 0xEE, 0xFE, // INC
             0xC6, 0xD6, 0xCE, 0xDE, // DEC
         ]);
+    }
+
+    // --- E09a : branchements et JMP ---
+
+    #[test]
+    fn branche_non_prise() {
+        let (cpu, _, ticks) = run_ticks(&[0xF0, 0x05], |cpu, _| {
+            cpu.set_flag(FLAG_Z, false); // Z = 0 : BEQ non prise
+        });
+        assert_eq!(ticks, 2);
+        assert_eq!(cpu.pc, 0x0602);
+    }
+
+    #[test]
+    fn branche_prise() {
+        let (cpu, _, ticks) = run_ticks(&[0xF0, 0x05], |cpu, _| {
+            cpu.set_flag(FLAG_Z, true); // Z = 1 : BEQ prise
+        });
+        assert_eq!(ticks, 3);
+        assert_eq!(cpu.pc, 0x0607);
+    }
+
+    #[test]
+    fn branche_page() {
+        let (cpu, bus, ticks) = run_at(0x06F0, &[0xF0, 0x7F], |cpu, _| {
+            cpu.set_flag(FLAG_Z, true); // Z = 1 : BEQ prise
+        });
+        assert_eq!(ticks, 4);
+        assert_eq!(cpu.pc, 0x0771);
+        assert_eq!(bus.log[3], Access::Read(0x0671, 0)); // 4e accès = R($0671)
+    }
+
+    #[test]
+    fn branche_arriere() {
+        let (cpu, _, ticks) = run_ticks(&[0xD0, 0xFE], |cpu, _| {
+            cpu.set_flag(FLAG_Z, false); // Z = 0 : BNE prise
+        });
+        assert_eq!(ticks, 3);
+        assert_eq!(cpu.pc, 0x0600);
+    }
+
+    #[test]
+    fn jmp_abs() {
+        let (cpu, _, ticks) = run_ticks(&[0x4C, 0x34, 0x12], |_, _| {});
+        assert_eq!(ticks, 3);
+        assert_eq!(cpu.pc, 0x1234);
+    }
+
+    #[test]
+    fn jmp_ind_bug() {
+        let (cpu, _, ticks) = run_ticks(&[0x6C, 0xFF, 0x10], |_, bus| {
+            bus.load(0x10FF, &[0x34]); // $10FF = octet bas de la cible
+            bus.load(0x1000, &[0x12]); // $1000 (pas $1100) = octet haut : bogue de page
+        });
+        assert_eq!(ticks, 5);
+        assert_eq!(cpu.pc, 0x1234);
     }
 }

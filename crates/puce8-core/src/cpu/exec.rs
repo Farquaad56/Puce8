@@ -1,4 +1,4 @@
-//! Exécution des micro-ops et des opérations (E04b : reset, NOP, JAM ; E05a : adressage en lecture + LDA ; E05b : écriture/RMW + sondes STA/INC ; E06a : load/store/transferts ; E07a : ADC/SBC/AND/ORA/EOR ; E07b : CMP/CPX/CPY, BIT, INX/INY/DEX/DEY ; E08a : ASL/LSR/ROL/ROR A).
+//! Exécution des micro-ops et des opérations (E04b : reset, NOP, JAM ; E05a : adressage en lecture + LDA ; E05b : écriture/RMW + sondes STA/INC ; E06a : load/store/transferts ; E07a : ADC/SBC/AND/ORA/EOR ; E07b : CMP/CPX/CPY, BIT, INX/INY/DEX/DEY ; E08a : ASL/LSR/ROL/ROR A ; E08b : RMW mémoire + DEC ; E09a : branchements et JMP).
 
 use super::micro_op::{Flow, MicroOp};
 use super::operations::Operation;
@@ -156,6 +156,46 @@ impl super::Cpu {
                 bus.write(self.addr, self.data);
                 Flow::Done
             }
+            // --- E09a : branchements et JMP (1 accès bus par micro-op) ---
+            MicroOp::BranchFetch => {
+                self.data = bus.read(self.pc);
+                self.pc = self.pc.wrapping_add(1);
+                if !self.branch_taken() {
+                    Flow::Done
+                } else {
+                    Flow::Next
+                }
+            }
+            MicroOp::BranchTaken => {
+                let _ = bus.read(self.pc); // lecture factice R*(PC)
+                self.addr = self.pc.wrapping_add((self.data as i8) as u16);
+                if (self.addr ^ self.pc) & 0xFF00 == 0 {
+                    self.pc = self.addr;
+                    Flow::Done
+                } else {
+                    Flow::Next // BranchFixPage suit
+                }
+            }
+            MicroOp::BranchFixPage => {
+                let _ = bus.read((self.pc & 0xFF00) | (self.addr & 0xFF));
+                self.pc = self.addr;
+                Flow::Done
+            }
+            MicroOp::JmpAbsHi => {
+                let hi = bus.read(self.pc);
+                self.pc = (u16::from(hi) << 8) | self.addr;
+                Flow::Done
+            }
+            MicroOp::ReadIndirectLo => {
+                self.data = bus.read(self.addr);
+                Flow::Next
+            }
+            MicroOp::JmpIndirectHi => {
+                // Bogue de page : l'octet haut est lu en (addr + 1) & $FFFF, pas addr + 1.
+                let hi = bus.read((self.addr & 0xFF00) | ((self.addr.wrapping_add(1)) & 0xFF));
+                self.pc = (u16::from(hi) << 8) | u16::from(self.data);
+                Flow::Done
+            }
             other => unimplemented!("{:?}", other),
         }
     }
@@ -169,6 +209,21 @@ impl super::Cpu {
         self.addr = base.wrapping_add(u16::from(reg));
         self.crossed = (base ^ self.addr) & 0xFF00 != 0;
         Flow::Next
+    }
+
+    /// Condition d'un branchement (E09a) : vrai = branche prise.
+    pub(crate) fn branch_taken(&self) -> bool {
+        match self.op {
+            Operation::Bpl => !self.flag(FLAG_N), // N = 0
+            Operation::Bmi => self.flag(FLAG_N),  // N = 1
+            Operation::Bvc => !self.flag(FLAG_V), // V = 0
+            Operation::Bvs => self.flag(FLAG_V),  // V = 1
+            Operation::Bcc => !self.flag(FLAG_C), // C = 0
+            Operation::Bcs => self.flag(FLAG_C),  // C = 1
+            Operation::Bne => !self.flag(FLAG_Z), // Z = 0
+            Operation::Beq => self.flag(FLAG_Z),  // Z = 1
+            other => unimplemented!("{:?}", other),
+        }
     }
 
     /// « Quoi » d'une instruction implicite (E04b : NOP ; E06a : transferts ; E07b : INX/INY/DEX/DEY ; E08a : ASL/LSR/ROL/ROR A).
