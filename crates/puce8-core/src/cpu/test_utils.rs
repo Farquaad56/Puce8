@@ -507,4 +507,58 @@ mod t1 {
         assert!(cpu.flag(FLAG_C));
         assert!(cpu.flag(FLAG_N));
     }
+
+    // --- E08b : RMW mémoire (ASL/LSR/ROL/ROR/INC/DEC) ---
+
+    #[test]
+    fn lsr_zp() {
+        let (cpu, bus) = run(&[0x46, 0x10], |_, bus| {
+            bus.load(0x10, &[1]);
+        });
+        assert_eq!(bus.mem[0x10], 0);
+        assert!(cpu.flag(FLAG_C));
+        assert!(cpu.flag(FLAG_Z));
+    }
+
+    #[test]
+    fn inc_wrap() {
+        let (cpu, bus) = run(&[0xE6, 0x10], |_, bus| {
+            bus.load(0x10, &[0xFF]);
+        });
+        assert_eq!(bus.mem[0x10], 0);
+        assert!(cpu.flag(FLAG_Z));
+        assert!(!cpu.flag(FLAG_N));
+    }
+
+    #[test]
+    fn dec_abs_x() {
+        let (cpu, bus) = run(&[0xDE, 0x00, 0x02], |cpu, bus| {
+            cpu.x = 1;
+            bus.load(0x0201, &[1]);
+        });
+        assert_eq!(
+            &bus.log[1..],
+            &[
+                Access::Read(0x0601, 0x00),
+                Access::Read(0x0602, 0x02),
+                Access::Read(0x0201, 1),  // lecture factice à A+X
+                Access::Read(0x0201, 1),  // RmwRead
+                Access::Write(0x0201, 1), // écriture factice (ancienne valeur)
+                Access::Write(0x0201, 0), // nouvelle valeur
+            ]
+        );
+        assert!(cpu.flag(FLAG_Z));
+    }
+
+    #[test]
+    fn invariants_e08() {
+        verifier_invariants(&[
+            0x0A, 0x06, 0x16, 0x0E, 0x1E, // ASL
+            0x4A, 0x46, 0x56, 0x4E, 0x5E, // LSR
+            0x2A, 0x26, 0x36, 0x2E, 0x3E, // ROL
+            0x6A, 0x66, 0x76, 0x6E, 0x7E, // ROR
+            0xE6, 0xF6, 0xEE, 0xFE, // INC
+            0xC6, 0xD6, 0xCE, 0xDE, // DEC
+        ]);
+    }
 }

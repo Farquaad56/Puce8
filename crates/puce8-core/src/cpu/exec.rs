@@ -272,11 +272,20 @@ impl super::Cpu {
         }
     }
 
-    /// Transformation lecture-modification-écriture (E05b : sonde INC).
+    /// Transformation lecture-modification-écriture (E05b : sonde INC ; E08b : ASL/LSR/ROL/ROR/DEC).
     pub(crate) fn exec_rmw(&mut self, op: Operation, data: u8) -> u8 {
         match op {
+            Operation::Asl => self.asl(data),
+            Operation::Lsr => self.lsr(data),
+            Operation::Rol => self.rol(data),
+            Operation::Ror => self.ror(data),
             Operation::Inc => {
                 let v = data.wrapping_add(1);
+                self.set_zn(v); // N, Z
+                v
+            }
+            Operation::Dec => {
+                let v = data.wrapping_sub(1);
                 self.set_zn(v); // N, Z
                 v
             }
