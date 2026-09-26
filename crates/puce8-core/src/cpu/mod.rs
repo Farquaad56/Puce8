@@ -31,18 +31,9 @@ pub(crate) mod test_utils;
 
 use micro_op::{Flow, MicroOp};
 use operations::Operation;
-use ported_steps::{ported_steps, RESET_SEQ};
+use ported_steps::{ported_steps, INTERRUPT_SEQ, RESET_SEQ};
 
 /// Processeur 6502 : séquenceur cycle-exact (1 tick = 1 cycle = 1 accès bus).
-// Champs imposés par E04b mais lus seulement à partir de E05/E12. `expect` (et non `allow`) :
-// clippy signalera l'attribut dès qu'il deviendra inutile, il faudra alors le retirer.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "champs lus à partir de E05 (adressage) et E12 (interruptions)"
-    )
-)]
 pub struct Cpu {
     pub a: u8,
     pub x: u8,
@@ -176,13 +167,25 @@ impl Cpu {
         }
     }
 
-    /// E12 : début de séquence NMI/IRQ.
-    fn begin_interrupt(&mut self, _bus: &mut impl CpuBus) {
-        unimplemented!("E12")
+    /// Début de séquence NMI/IRQ (E12a) : 1er cycle = R*(PC), à la place de la lecture
+    /// de l'opcode ; PC n'est pas incrémenté.
+    fn begin_interrupt(&mut self, bus: &mut impl CpuBus) {
+        let _ = bus.read(self.pc); // lecture factice R*(PC), PC non incrémenté
+        self.steps = INTERRUPT_SEQ;
+        self.idx = 0;
     }
 
-    /// E12 : échantillonne les lignes NMI/IRQ en fin de cycle.
-    fn sample_interrupts(&mut self, _bus: &impl CpuBus) {}
+    /// Échantillonne les lignes NMI/IRQ en fin de cycle (E12a).
+    fn sample_interrupts(&mut self, bus: &impl CpuBus) {
+        self.prev_need_nmi = self.need_nmi;
+        let nmi = bus.nmi_line();
+        if nmi && !self.prev_nmi_line {
+            self.need_nmi = true; // front montant
+        }
+        self.prev_nmi_line = nmi;
+        self.prev_run_irq = self.run_irq;
+        self.run_irq = bus.irq_line() && ((self.p & exec::FLAG_I) == 0); // niveau, masqué par I
+    }
 }
 
 #[cfg(test)]

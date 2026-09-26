@@ -267,10 +267,18 @@ impl super::Cpu {
                 Flow::Next
             }
             MicroOp::PushPBrk => {
-                // B forcé à 1 dans l'octet empilé (bit 5), avant de poser I.
+                // B forcé à 1 dans the octet empilé (bit 5), avant de poser I.
                 bus.write(0x0100 + u16::from(self.s), self.p | 0x30);
                 self.s = self.s.wrapping_sub(1);
-                self.set_flag(FLAG_I, true); // I = 1 : les IRQ sont masqués
+                self.set_flag(FLAG_I, true); // I = 1 : les IRQ are masquées
+                self.vector = if self.need_nmi { 0xFFFA } else { 0xFFFE };
+                Flow::Next
+            }
+            MicroOp::PushPInterrupt => {
+                // B effacé dans l'octet empilé (bit 5), U forcé à 1, avant de poser I.
+                bus.write(0x0100 + u16::from(self.s), (self.p & !FLAG_B) | FLAG_U);
+                self.s = self.s.wrapping_sub(1);
+                self.set_flag(FLAG_I, true); // I = 1 : les IRQ sont masquées
                 self.vector = if self.need_nmi { 0xFFFA } else { 0xFFFE };
                 Flow::Next
             }
@@ -286,7 +294,6 @@ impl super::Cpu {
                 self.pc = (u16::from(hi) << 8) | self.addr;
                 Flow::Done
             }
-            other => unimplemented!("{:?}", other),
         }
     }
 

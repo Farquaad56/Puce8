@@ -93,9 +93,10 @@ pub(crate) fn verifier_invariants(ops: &[u8]) {
 #[cfg(test)]
 mod t1 {
     use super::{run, run_at, run_ticks, verifier_invariants};
-    use crate::cpu::exec::{FLAG_C, FLAG_D, FLAG_I, FLAG_N, FLAG_V, FLAG_Z};
+    use crate::cpu::exec::{FLAG_B, FLAG_C, FLAG_D, FLAG_I, FLAG_N, FLAG_U, FLAG_V, FLAG_Z};
     use crate::cpu::opcodes::{Mode, OPCODES};
-    use crate::cpu::test_bus::Access;
+    use crate::cpu::test_bus::{Access, TestBus};
+    use crate::cpu::Cpu;
 
     #[test]
     fn lda_imm() {
@@ -912,5 +913,136 @@ mod t1 {
             .collect();
         assert_eq!(ops.len(), 236); // hors JAM (12) et branchements (8)
         verifier_invariants(&ops);
+    }
+
+    // --- E12a : échantillonnage des interruptions et séquence NMI/IRQ ---
+
+    /// Après reset (S = $FD) : NOP en $0600, vecteur NMI → $0700, vecteur IRQ → $0800.
+    fn nmi_irq_bus() -> TestBus {
+        let mut bus = TestBus::new();
+        bus.set_vector(0xFFFC, 0x0600); // reset → $0600
+        bus.load(0x0600, &[0xEA]); // NOP
+        bus.set_vector(0xFFFA, 0x0700); // NMI → $0700
+        bus.set_vector(0xFFFE, 0x0800); // IRQ → $0800
+        bus
+    }
+
+    /// CPU après la séquence de reset (7 ticks), journal vidé.
+    fn cpu_apres_reset(bus: &mut TestBus) -> Cpu {
+        let mut cpu = Cpu::new();
+        for _ in 0..7 {
+            cpu.tick(bus);
+        }
+        assert!(cpu.at_instruction_boundary());
+        bus.clear_log();
+        cpu
+    }
+
+    #[test]
+    fn nmi_simple() {
+        let mut bus = nmi_irq_bus();
+        let mut cpu = cpu_apres_reset(&mut bus);
+        bus.nmi = true; // ligne NMI posée pendant le NOP (front montant)
+        assert_eq!(cpu.step_instruction(&mut bus), 2); // NOP : opcode + exécution
+        assert_eq!(cpu.pc, 0x0601);
+        let ticks = cpu.step_instruction(&mut bus); // séquence d'interruption
+        assert_eq!(ticks, 7);
+        assert_eq!(cpu.pc, 0x0700); // vecteur NMI → $0700
+        assert!(cpu.flag(FLAG_I)); // I = 1
+        assert_eq!(bus.mem[0x01FD], 0x06); // PCH ($0601)
+        assert_eq!(bus.mem[0x01FC], 0x01); // PCL
+        assert_eq!(bus.mem[0x01FB], (cpu.p & !FLAG_B) | FLAG_U); // P empilé : B = 0, U = 1
+    }
+
+    #[test]
+    fn nmi_front_unique() {
+        let mut bus = nmi_irq_bus();
+        let mut cpu = cpu_apres_reset(&mut bus);
+        bus.nmi = true; // la ligne reste posée : pas de nouveau front montant
+        assert_eq!(cpu.step_instruction(&mut bus), 2); // NOP
+        assert_eq!(cpu.step_instruction(&mut bus), 7); // un seul NMI
+        assert_eq!(cpu.pc, 0x0700);
+        bus.load(0x0700, &[0xEA]); // NOP à l'entrée du gestionnaire
+        assert_eq!(cpu.step_instruction(&mut bus), 2); // pas de second NMI : juste le NOP
+        assert_eq!(cpu.pc, 0x0701);
+    }
+
+    #[test]
+    fn irq_masquee() {
+        let mut bus = nmi_irq_bus();
+        let mut cpu = cpu_apres_reset(&mut bus);
+        assert!(cpu.flag(FLAG_I)); // après reset I = 1 (P = $24) : IRQ masquée
+        bus.irq = true; // ligne posée mais masquée par I
+        assert_eq!(cpu.step_instruction(&mut bus), 2); // NOP, aucune interruption
+        assert_eq!(cpu.pc, 0x0601);
+        assert!(!cpu.run_irq && !cpu.prev_run_irq);
+    }
+
+    #[test]
+    fn irq_prise() {
+        let mut bus = nmi_irq_bus();
+        let mut cpu = cpu_apres_reset(&mut bus);
+        cpu.set_flag(FLAG_I, false); // I = 0 : IRQ non masquée (sensible au niveau)
+        bus.irq = true;
+        assert_eq!(cpu.step_instruction(&mut bus), 2); // NOP
+        let ticks = cpu.step_instruction(&mut bus); // séquence d'interruption (IRQ)
+        assert_eq!(ticks, 7);
+        assert_eq!(cpu.pc, 0x0800); // vecteur IRQ $FFFE → $0800
+        assert!(cpu.flag(FLAG_I)); // I reposé par la séquence
+    }
+
+    #[test]
+    fn pc_non_incremente() {
+        let mut bus = TestBus::new();
+        bus.set_vector(0xFFFC, 0x0600);
+        bus.load(0x0600, &[0xEA; 5]); // 5 NOP en $0600..$0604
+        bus.set_vector(0xFFFA, 0x0700);
+        let mut cpu = Cpu::new();
+        for _ in 0..7 {
+            cpu.tick(&mut bus);
+        }
+        assert!(cpu.at_instruction_boundary());
+        bus.clear_log();
+        for _ in 0..8 {
+            cpu.tick(&mut bus); // 4 NOP → PC = $0604
+        }
+        assert_eq!(cpu.pc, 0x0604);
+        // NMI posée pendant la lecture de l'opcode du dernier NOP (cycle d'index 8).
+        bus.on_access = Some(Box::new(|idx, nmi, _irq| {
+            if idx == 8 {
+                *nmi = true;
+            }
+        }));
+        cpu.tick(&mut bus); // lecture de $0604 → PC = $0605, front montant échantillonné
+        cpu.tick(&mut bus); // dernier NOP exécuté → frontière avec prev_need_nmi posé
+        let ticks = cpu.step_instruction(&mut bus);
+        assert_eq!(ticks, 7);
+        assert_eq!(cpu.pc, 0x0700);
+        assert_eq!(bus.mem[0x01FD], 0x06); // PCH
+        assert_eq!(bus.mem[0x01FC], 0x05); // PCL = $0605 : PC non incrémenté
+    }
+
+    #[test]
+    fn interruption_7_ticks() {
+        let mut bus = nmi_irq_bus();
+        let mut cpu = cpu_apres_reset(&mut bus);
+        bus.nmi = true;
+        assert_eq!(cpu.step_instruction(&mut bus), 2); // NOP
+        bus.clear_log();
+        let ticks = cpu.step_instruction(&mut bus); // séquence d'interruption
+        assert_eq!(ticks, 7);
+        assert_eq!(bus.log.len(), 7); // 1 accès par tick
+        assert_eq!(
+            &bus.log[..],
+            &[
+                Access::Read(0x0601, 0),     // R*(PC) : PC non incrémenté
+                Access::Read(0x0601, 0),     // DummyReadPc
+                Access::Write(0x01FD, 0x06), // PCH
+                Access::Write(0x01FC, 0x01), // PCL
+                Access::Write(0x01FB, 0x24), // P empilé (B = 0)
+                Access::Read(0xFFFA, 0x00),  // vecteur NMI : octet bas
+                Access::Read(0xFFFB, 0x07),  // octet haut → $0700
+            ]
+        );
     }
 }
