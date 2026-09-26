@@ -466,4 +466,45 @@ mod t1 {
             0xE8, 0xC8, 0xCA, 0x88, // INX/INY/DEX/DEY
         ]);
     }
+
+    // --- E08a : décalages/rotations sur l'accumulateur ---
+
+    #[test]
+    fn asl_acc() {
+        let (cpu, _) = run(&[0x0A], |cpu, _| cpu.a = 0x81);
+        assert_eq!(cpu.a, 0x02);
+        assert!(cpu.flag(FLAG_C));
+        assert!(!cpu.flag(FLAG_N));
+        assert!(!cpu.flag(FLAG_Z));
+    }
+
+    #[test]
+    fn lsr_acc() {
+        let (cpu, _) = run(&[0x4A], |cpu, _| cpu.a = 0x01);
+        assert_eq!(cpu.a, 0x00);
+        assert!(cpu.flag(FLAG_C));
+        assert!(cpu.flag(FLAG_Z));
+        assert!(!cpu.flag(FLAG_N));
+    }
+
+    #[test]
+    fn rol_carry_in() {
+        let (cpu, _) = run(&[0x2A], |cpu, _| {
+            cpu.a = 0x80;
+            cpu.set_flag(FLAG_C, true);
+        });
+        assert_eq!(cpu.a, 0x01);
+        assert!(cpu.flag(FLAG_C));
+    }
+
+    #[test]
+    fn ror_carry_in() {
+        let (cpu, _) = run(&[0x6A], |cpu, _| {
+            cpu.a = 0x01;
+            cpu.set_flag(FLAG_C, true);
+        });
+        assert_eq!(cpu.a, 0x80);
+        assert!(cpu.flag(FLAG_C));
+        assert!(cpu.flag(FLAG_N));
+    }
 }

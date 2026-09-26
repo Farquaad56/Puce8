@@ -1,4 +1,4 @@
-//! Exécution des micro-ops et des opérations (E04b : reset, NOP, JAM ; E05a : adressage en lecture + LDA ; E05b : écriture/RMW + sondes STA/INC ; E06a : load/store/transferts ; E07a : ADC/SBC/AND/ORA/EOR ; E07b : CMP/CPX/CPY, BIT, INX/INY/DEX/DEY).
+//! Exécution des micro-ops et des opérations (E04b : reset, NOP, JAM ; E05a : adressage en lecture + LDA ; E05b : écriture/RMW + sondes STA/INC ; E06a : load/store/transferts ; E07a : ADC/SBC/AND/ORA/EOR ; E07b : CMP/CPX/CPY, BIT, INX/INY/DEX/DEY ; E08a : ASL/LSR/ROL/ROR A).
 
 use super::micro_op::{Flow, MicroOp};
 use super::operations::Operation;
@@ -171,7 +171,7 @@ impl super::Cpu {
         Flow::Next
     }
 
-    /// « Quoi » d'une instruction implicite (E04b : NOP ; E06a : transferts ; E07b : INX/INY/DEX/DEY).
+    /// « Quoi » d'une instruction implicite (E04b : NOP ; E06a : transferts ; E07b : INX/INY/DEX/DEY ; E08a : ASL/LSR/ROL/ROR A).
     pub(crate) fn exec_implied(&mut self, op: Operation) {
         match op {
             Operation::Nop => {}
@@ -212,6 +212,10 @@ impl super::Cpu {
                 self.y = self.y.wrapping_sub(1);
                 self.set_zn(self.y); // N, Z
             }
+            Operation::Asl => self.a = self.asl(self.a), // E08a : mode accumulateur
+            Operation::Lsr => self.a = self.lsr(self.a),
+            Operation::Rol => self.a = self.rol(self.a),
+            Operation::Ror => self.a = self.ror(self.a),
             other => unimplemented!("{:?}", other),
         }
     }
@@ -306,6 +310,42 @@ impl super::Cpu {
         let r = reg.wrapping_sub(m);
         self.set_flag(FLAG_C, reg >= m);
         self.set_zn(r); // N, Z (r == 0 ⇔ reg == M)
+    }
+
+    // ---------- Décalages/rotations (E08a) ----------
+
+    /// ASL : C = bit 7 de v ; r = v << 1 ; N, Z sur r.
+    pub(crate) fn asl(&mut self, v: u8) -> u8 {
+        self.set_flag(FLAG_C, v & 0x80 != 0);
+        let r = v << 1;
+        self.set_zn(r);
+        r
+    }
+
+    /// LSR : C = bit 0 de v ; r = v >> 1 (N = 0).
+    pub(crate) fn lsr(&mut self, v: u8) -> u8 {
+        self.set_flag(FLAG_C, v & 0x01 != 0);
+        let r = v >> 1;
+        self.set_zn(r); // N = 0
+        r
+    }
+
+    /// ROL : C' = bit 7 de v ; r = (v << 1) | C ; N, Z sur r.
+    pub(crate) fn rol(&mut self, v: u8) -> u8 {
+        let c = self.flag(FLAG_C) as u8;
+        self.set_flag(FLAG_C, v & 0x80 != 0);
+        let r = (v << 1) | c;
+        self.set_zn(r);
+        r
+    }
+
+    /// ROR : C' = bit 0 de v ; r = (v >> 1) | (C << 7).
+    pub(crate) fn ror(&mut self, v: u8) -> u8 {
+        let c = self.flag(FLAG_C) as u8;
+        self.set_flag(FLAG_C, v & 0x01 != 0);
+        let r = (v >> 1) | (c << 7);
+        self.set_zn(r);
+        r
     }
 
     // ---------- Aides sur les flags ----------
