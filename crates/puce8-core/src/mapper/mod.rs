@@ -1,4 +1,4 @@
-//! Mappers de cartouche : trait commun, mémoire CHR partagée, fabrique (ARCHI §A3).
+//! Mappers de cartouche : trait commun, memoire CHR partagee, fabrique (ARCHI par. A3).
 // wiki: NROM ; wiki: INES_Mapper_000
 
 pub mod nrom;
@@ -15,35 +15,35 @@ pub enum Mirroring {
     FourScreen,
 }
 
-/// Contrat commun à tous les mappers de cartouche (ARCHI §A3).
+/// Contrat commun a tous les mappers de cartouche (ARCHI par. A3).
 pub trait Mapper {
-    /// CPU $4020-$FFFF. None = rien n'est branché → open bus.
+    /// CPU $4020-$FFFF. None = rien n'est branche -> open bus.
     fn cpu_read(&mut self, addr: u16) -> Option<u8>;
-    /// Lecture sans effet de bord : même valeur que `cpu_read`.
+    /// Lecture sans effet de bord : meme valeur que `cpu_read`.
     fn cpu_peek(&self, addr: u16) -> Option<u8>;
     fn cpu_write(&mut self, addr: u16, value: u8);
     /// PPU $0000-$1FFF (tables de motifs, CHR-ROM ou CHR-RAM).
     fn ppu_read(&mut self, addr: u16) -> u8;
     fn ppu_write(&mut self, addr: u16, value: u8);
-    /// Mirroring fixe, celui de l'en-tête.
+    /// Mirroring fixe, celui de l'en-tete.
     fn mirroring(&self) -> Mirroring;
-    /// Appelé pour CHAQUE adresse posée sur le bus PPU (rendu, $2006, $2007) → compteur de lignes MMC3 (A12).
+    /// Appele pour CHAQUE adresse posee sur le bus PPU (rendu, $2006, $2007) -> compteur de lignes MMC3 (A12).
     fn notify_ppu_address(&mut self, _addr: u16) {}
-    /// Appelé à chaque cycle CPU (M2) par Nes::tick → filtre A12 du MMC3, écritures consécutives du MMC1.
+    /// Appele a chaque cycle CPU (M2) par Nes::tick -> filtre A12 du MMC3, ecritures consecutives du MMC1.
     fn cpu_cycle(&mut self) {}
     /// true = IRQ mapper active (sensible au niveau).
     fn irq_pending(&self) -> bool {
         false
     }
-    /// RAM alimentée par batterie à sauvegarder ; None si la carte n'en a pas.
+    /// RAM alimentee par batterie a sauvegarder ; None si la carte n'en a pas.
     fn battery_ram(&self) -> Option<&[u8]> {
         None
     }
-    /// Restaure un état sauvegardé dans la RAM de batterie.
+    /// Restaure un etat sauvegarde dans la RAM de batterie.
     fn load_battery_ram(&mut self, _data: &[u8]) {}
 }
 
-/// CHR-ROM ou CHR-RAM, réutilisable par tous les mappers.
+/// CHR-ROM ou CHR-RAM, reutilisable par tous les mappers.
 pub struct ChrMemory {
     data: Vec<u8>,
     writable: bool,
@@ -67,7 +67,7 @@ impl ChrMemory {
         }
     }
 
-    /// Lecture à `offset` (déjà « banké »), repliée modulo la taille.
+    /// Lecture a `offset` (deja "banke"), repliee modulo la taille.
     pub fn read(&self, offset: usize) -> u8 {
         if self.data.is_empty() {
             return 0;
@@ -75,7 +75,7 @@ impl ChrMemory {
         self.data[offset % self.data.len()]
     }
 
-    /// N'écrit que si writable (CHR-RAM).
+    /// N'ecrit que si writable (CHR-RAM).
     pub fn write(&mut self, offset: usize, value: u8) {
         if self.writable && !self.data.is_empty() {
             let idx = offset % self.data.len();
@@ -88,13 +88,13 @@ impl ChrMemory {
         self.data.len()
     }
 
-    /// true si la mémoire est vide.
+    /// true si la memoire est vide.
     pub fn is_empty(&self) -> bool {
         self.data.is_empty()
     }
 }
 
-/// Fabrique : mapper à partir de l'en-tête de la cartouche (NROM pour l'instant).
+/// Fabrique : mapper a partir de l'en-tete de la cartouche (NROM pour l'instant).
 pub fn create_mapper(cart: Cartridge) -> Result<Box<dyn Mapper>, RomError> {
     match cart.mapper_id {
         0 => Ok(Box::new(nrom::Nrom::new(cart))),
@@ -106,7 +106,7 @@ pub fn create_mapper(cart: Cartridge) -> Result<Box<dyn Mapper>, RomError> {
 mod tests {
     use super::*;
 
-    /// Cartouche synthétique : PRG de 16 Ko nul, CHR donné.
+    /// Cartouche synthetique : PRG de 16 Ko nul, CHR donne.
     fn cart(chr_rom: Vec<u8>, chr_ram_size: usize) -> Cartridge {
         Cartridge {
             mapper_id: 0,
@@ -128,7 +128,7 @@ mod tests {
         assert_eq!(m.len(), 2);
         assert_eq!(m.read(0), 0xC0);
         assert_eq!(m.read(1), 0xC1);
-        m.write(0, 0xFF); // ROM → ignoré
+        m.write(0, 0xFF); // ROM -> ignore
         assert_eq!(m.read(0), 0xC0);
     }
 
@@ -158,7 +158,7 @@ mod tests {
         let mut rom = [0u8; 16];
         rom[0..4].copy_from_slice(&[b'N', b'E', b'S', 0x1A]);
         rom[6] = 0x30; // bits 2-5 de f6 : quartet bas du mapper (3)
-        rom[7] = 0x60; // bits 4-7 de f7 : quartet haut → mapper 99
+        rom[7] = 0x60; // bits 4-7 de f7 : quartet haut -> mapper 99
         let cart = Cartridge::from_bytes(&rom).unwrap();
         assert_eq!(cart.mapper_id, 99);
         assert!(matches!(create_mapper(cart), Err(RomError::Unsupported(_))));
@@ -171,11 +171,11 @@ mod tests {
             "/../../tests/roms/other/nestest.nes"
         );
         let Ok(data) = std::fs::read(path) else {
-            eprintln!("vrai_nestest ignoré : {path} absent");
+            eprintln!("vrai_nestest ignore : {path} absent");
             return;
         };
         let cart = Cartridge::from_bytes(&data).unwrap();
-        let mut m = create_mapper(cart).expect("nestest.nes (mapper 0) doit être créable");
+        let mut m = create_mapper(cart).expect("nestest.nes (mapper 0) doit etre creable");
         assert!(m.cpu_read(0x8000).is_some());
     }
 }

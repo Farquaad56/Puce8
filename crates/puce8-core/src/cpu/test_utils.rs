@@ -1,11 +1,11 @@
-//! Aides de test du CPU (E05a/E05b) : exécuter un court programme à $0600 et inspecter le journal.
+//! Aides de test du CPU (E05a/E05b) : executer un court programme a $0600 et inspecter le journal.
 
 use super::test_bus::TestBus;
 use super::Cpu;
 use crate::cpu::opcodes::{Mode, OPCODES};
 
-/// Exécute `code` en $0600 après reset (vecteur = $0600), applique `setup`, puis fait
-/// l'instruction complète. Après `clear_log()`, `log[0]` est la lecture de l'opcode.
+/// Execute `code` en $0600 apres reset (vecteur = $0600), applique `setup`, puis fait
+/// l'instruction complete. Apres `clear_log()`, `log[0]` est la lecture de l'opcode.
 pub(crate) fn run(code: &[u8], setup: impl FnOnce(&mut Cpu, &mut TestBus)) -> (Cpu, TestBus) {
     let (cpu, bus, _ticks) = run_ticks(code, setup);
     (cpu, bus)
@@ -36,13 +36,13 @@ fn run_at(
     (cpu, bus, ticks)
 }
 
-/// Pour chaque opcode : opérandes $10 $02, X = Y = 0, pointeurs de page zéro ($10/$11) → $0200.
-/// Vérifie : chaque tick = exactement 1 accès, et le nombre de ticks == OPCODES[op].cycles.
-/// Puis, si page_penalty == 1 : X = Y = $FF, base $02F0 → cycles + 1.
+/// Pour chaque opcode : operandes $10 $02, X = Y = 0, pointeurs de page zero ($10/$11) -> $0200.
+/// Verifie : chaque tick = exactement 1 acces, et le nombre de ticks == OPCODES[op].cycles.
+/// Puis, si page_penalty == 1 : X = Y = $FF, base $02F0 -> cycles + 1.
 pub(crate) fn verifier_invariants(ops: &[u8]) {
     for &op in ops {
         let info = OPCODES[op as usize];
-        // Phase 1 : opérandes $10 $02, X = Y = 0 (défaut après reset), pointeurs → $0200.
+        // Phase 1 : operandes $10 $02, X = Y = 0 (defaut apres reset), pointeurs -> $0200.
         let code = match info.mode.operand_len() {
             0 => vec![op],
             1 => vec![op, 0x10],
@@ -50,34 +50,34 @@ pub(crate) fn verifier_invariants(ops: &[u8]) {
         };
         let (_, bus, ticks) = run_ticks(&code, |_, bus| {
             if matches!(info.mode, Mode::Izx | Mode::Izy) {
-                bus.load(0x10, &[0x00, 0x02]); // pointeurs $10/$11 → $0200
+                bus.load(0x10, &[0x00, 0x02]); // pointeurs $10/$11 -> $0200
             }
         });
         assert_eq!(
             bus.log.len(),
             ticks as usize,
-            "opcode {:02X} : 1 accès par tick",
+            "opcode {:02X} : 1 acces par tick",
             op
         );
         assert_eq!(ticks, info.cycles as u32, "opcode {:02X}", op);
 
-        // Phase 2 : si page_penalty == 1 : X = Y = $FF, base $02F0 → cycles + 1.
+        // Phase 2 : si page_penalty == 1 : X = Y = $FF, base $02F0 -> cycles + 1.
         if info.page_penalty == 1 {
             let code = match info.mode {
-                Mode::Izy => vec![op, 0x10], // pointeurs $10/$11 → base $02F0
+                Mode::Izy => vec![op, 0x10], // pointeurs $10/$11 -> base $02F0
                 _ => vec![op, 0xF0, 0x02],
             };
             let (_, bus, ticks) = run_ticks(&code, |cpu, bus| {
                 cpu.x = 0xFF;
                 cpu.y = 0xFF;
                 if info.mode == Mode::Izy {
-                    bus.load(0x10, &[0xF0, 0x02]); // pointeurs $10/$11 → base $02F0
+                    bus.load(0x10, &[0xF0, 0x02]); // pointeurs $10/$11 -> base $02F0
                 }
             });
             assert_eq!(
                 bus.log.len(),
                 ticks as usize,
-                "opcode {:02X} : 1 accès par tick",
+                "opcode {:02X} : 1 acces par tick",
                 op
             );
             assert_eq!(
@@ -245,7 +245,7 @@ mod t1 {
     #[test]
     fn inc_abx_7() {
         let (_, bus) = run(&[0xFE, 0x00, 0x02], |cpu, _| cpu.x = 1);
-        assert_eq!(bus.log.len(), 7); // 7 ticks : chaque tick = exactement 1 accès
+        assert_eq!(bus.log.len(), 7); // 7 ticks : chaque tick = exactement 1 acces
         assert_eq!(
             &bus.log[3..],
             &[
@@ -324,11 +324,11 @@ mod t1 {
         ]);
     }
 
-    // --- E07a : arithmétique et logique ---
+    // --- E07a : arithmetique et logique ---
 
     #[test]
     fn adc_table() {
-        // (A, M, Cin) → (A, C, V).
+        // (A, M, Cin) -> (A, C, V).
         let cases = [
             (0x50u8, 0x10u8, false, 0x60u8, false, false),
             (0x50, 0x50, false, 0xA0, false, true),
@@ -359,7 +359,7 @@ mod t1 {
                 cin
             );
         }
-        // (FF, 01, 0) → Z = 1.
+        // (FF, 01, 0) -> Z = 1.
         let (cpu, _) = run(&[0x69, 0x01], |cpu, _| {
             cpu.a = 0xFF;
             cpu.set_flag(FLAG_C, false);
@@ -369,7 +369,7 @@ mod t1 {
 
     #[test]
     fn sbc_table() {
-        // (A, M, Cin) → (A, C, V).
+        // (A, M, Cin) -> (A, C, V).
         let cases = [
             (0x50u8, 0xF0u8, true, 0x60u8, false, false),
             (0x50, 0xB0, true, 0xA0, false, true),
@@ -403,7 +403,7 @@ mod t1 {
 
     #[test]
     fn mode_decimal_ignore() {
-        // D = 1 : pas de mode décimal sur le 2A03 — ADC reste binaire.
+        // D = 1 : pas de mode decimal sur le 2A03 - ADC reste binaire.
         let (cpu, _) = run(&[0x69, 0x01], |cpu, _| {
             cpu.a = 0x09;
             cpu.set_flag(FLAG_D, true);
@@ -453,7 +453,7 @@ mod t1 {
             cpu.a = 0x01;
             bus.load(0x10, &[0xC0]);
         });
-        assert_eq!(cpu.a, 0x01); // A inchangé
+        assert_eq!(cpu.a, 0x01); // A inchange
         assert!(cpu.flag(FLAG_Z));
         assert!(cpu.flag(FLAG_N));
         assert!(cpu.flag(FLAG_V));
@@ -478,7 +478,7 @@ mod t1 {
         ]);
     }
 
-    // --- E08a : décalages/rotations sur l'accumulateur ---
+    // --- E08a : decalages/rotations sur l'accumulateur ---
 
     #[test]
     fn asl_acc() {
@@ -519,7 +519,7 @@ mod t1 {
         assert!(cpu.flag(FLAG_N));
     }
 
-    // --- E08b : RMW mémoire (ASL/LSR/ROL/ROR/INC/DEC) ---
+    // --- E08b : RMW memoire (ASL/LSR/ROL/ROR/INC/DEC) ---
 
     #[test]
     fn lsr_zp() {
@@ -552,9 +552,9 @@ mod t1 {
             &[
                 Access::Read(0x0601, 0x00),
                 Access::Read(0x0602, 0x02),
-                Access::Read(0x0201, 1),  // lecture factice à A+X
+                Access::Read(0x0201, 1),  // lecture factice a A+X
                 Access::Read(0x0201, 1),  // RmwRead
-                Access::Write(0x0201, 1), // écriture factice (ancienne valeur)
+                Access::Write(0x0201, 1), // ecriture factice (ancienne valeur)
                 Access::Write(0x0201, 0), // nouvelle valeur
             ]
         );
@@ -600,7 +600,7 @@ mod t1 {
         });
         assert_eq!(ticks, 4);
         assert_eq!(cpu.pc, 0x0771);
-        assert_eq!(bus.log[3], Access::Read(0x0671, 0)); // 4e accès = R($0671)
+        assert_eq!(bus.log[3], Access::Read(0x0671, 0)); // 4e acces = R($0671)
     }
 
     #[test]
@@ -633,7 +633,7 @@ mod t1 {
 
     #[test]
     fn jsr_journal() {
-        let (cpu, bus) = run(&[0x20, 0x00, 0x07], |_, _| {}); // S = FD après reset
+        let (cpu, bus) = run(&[0x20, 0x00, 0x07], |_, _| {}); // S = FD apres reset
         assert_eq!(
             &bus.log[1..],
             &[
@@ -651,7 +651,7 @@ mod t1 {
     #[test]
     fn rts() {
         let (mut cpu, mut bus, ticks) = run_ticks(&[0x20, 0x00, 0x07], |_, bus| {
-            bus.load(0x0700, &[0x60]); // RTS à la cible du JSR
+            bus.load(0x0700, &[0x60]); // RTS a la cible du JSR
         });
         assert_eq!(ticks, 6); // JSR : opcode + 5 micro-ops
         let ticks = cpu.step_instruction(&mut bus);
@@ -662,16 +662,16 @@ mod t1 {
     #[test]
     fn php_b_bit5() {
         let (_, bus) = run(&[0x08], |cpu, _| cpu.p = 0x24);
-        assert_eq!(bus.mem[0x01FD], 0x34); // octet empilé : P | $30 (B forcé à 1)
+        assert_eq!(bus.mem[0x01FD], 0x34); // octet empile : P | $30 (B force a 1)
     }
 
     #[test]
     fn plp_ignore_b() {
         let (cpu, _) = run(&[0x28], |cpu, bus| {
             cpu.s = 0xFC;
-            bus.load(0x01FD, &[0xFF]); // octet de pile avec B posé
+            bus.load(0x01FD, &[0xFF]); // octet de pile avec B pose
         });
-        assert_eq!(cpu.p, 0xEF); // (FF & CF) | 20 : B ignoré, U forcé à 1
+        assert_eq!(cpu.p, 0xEF); // (FF & CF) | 20 : B ignore, U force a 1
     }
 
     #[test]
@@ -710,20 +710,20 @@ mod t1 {
     fn brk_rti() {
         let (mut cpu, mut bus, ticks) = run_ticks(&[0x00], |cpu, bus| {
             cpu.set_flag(FLAG_I, false); // I = 0 : le BRK doit le poser
-            bus.set_vector(0xFFFE, 0x0800); // $FFFE:$FFFF → $0800
-            bus.load(0x0800, &[0x40]); // RTI à la cible du BRK
+            bus.set_vector(0xFFFE, 0x0800); // $FFFE:$FFFF -> $0800
+            bus.load(0x0800, &[0x40]); // RTI a la cible du BRK
         });
         assert_eq!(ticks, 7); // BRK : opcode + 6 micro-ops (padding, PC, P, vecteur)
         assert_eq!(cpu.s, 0xFA);
         assert_eq!(bus.mem[0x01FD], 0x06); // octet haut de l'adresse de retour ($0602)
         assert_eq!(bus.mem[0x01FC], 0x02); // octet bas
-        assert_eq!(bus.mem[0x01FB], 0x30); // P | $30 : B forcé, I pas encore posé (P = $20)
-        assert!(cpu.flag(FLAG_I)); // I = 1 : posé par le BRK
+        assert_eq!(bus.mem[0x01FB], 0x30); // P | $30 : B force, I pas encore pose (P = $20)
+        assert!(cpu.flag(FLAG_I)); // I = 1 : pose par le BRK
         let ticks = cpu.step_instruction(&mut bus);
         assert_eq!(ticks, 6); // RTI : opcode + 5 micro-ops
         assert_eq!(cpu.pc, 0x0602);
         assert_eq!(cpu.s, 0xFD);
-        assert_eq!(cpu.p, 0x20); // P restauré : B ignoré (bit 5 effacé), U forcé à 1
+        assert_eq!(cpu.p, 0x20); // P restaure : B ignore (bit 5 efface), U force a 1
     }
 
     #[test]
@@ -734,7 +734,7 @@ mod t1 {
             bus.set_vector(0xFFFE, 0x5678);
         });
         assert_eq!(cpu.pc, 0x1234); // $FFFA pris, pas $FFFE
-        assert!(!cpu.need_nmi); // consommé par ReadVectorHi
+        assert!(!cpu.need_nmi); // consomme par ReadVectorHi
     }
 
     #[test]
@@ -746,7 +746,7 @@ mod t1 {
             let code = match OPCODES[op as usize].mode.operand_len() {
                 0 => vec![op],
                 1 => vec![op, 0x10],
-                _ => vec![op, 0x10, 0x02], // opérandes $10 $02
+                _ => vec![op, 0x10, 0x02], // operandes $10 $02
             };
             run(&code, |_, _| {}); // pas de panique sur les 151 officiels
         }
@@ -758,7 +758,7 @@ mod t1 {
         let ops: Vec<u8> = (0..=255u8)
             .filter(|op| OPCODES[*op as usize].official && !branches.contains(op))
             .collect();
-        assert_eq!(ops.len(), 143); // 151 officiels − 8 branchements
+        assert_eq!(ops.len(), 143); // 151 officiels - 8 branchements
         verifier_invariants(&ops);
     }
 
@@ -789,7 +789,7 @@ mod t1 {
             bus.load(0x10, &[6]);
         });
         assert_eq!(bus.mem[0x10], 5); // M -= 1
-        assert!(cpu.flag(FLAG_Z)); // A == M après décrément
+        assert!(cpu.flag(FLAG_Z)); // A == M apres decrement
         assert!(cpu.flag(FLAG_C)); // A >= M
     }
 
@@ -801,7 +801,7 @@ mod t1 {
             bus.load(0x10, &[1]);
         });
         assert_eq!(bus.mem[0x10], 2); // M += 1
-        assert_eq!(cpu.a, 3); // SBC(2) : A = 5 - 2 (C = 1 → pas d'emprunt)
+        assert_eq!(cpu.a, 3); // SBC(2) : A = 5 - 2 (C = 1 -> pas d'emprunt)
     }
 
     #[test]
@@ -811,7 +811,7 @@ mod t1 {
             bus.load(0x10, &[0x80]);
         });
         assert_eq!(bus.mem[0x10], 0); // ASL(0x80) = 0
-        assert!(cpu.flag(FLAG_C)); // bit 7 de M posé avant décalage
+        assert!(cpu.flag(FLAG_C)); // bit 7 de M pose avant decalage
         assert_eq!(cpu.a, 1); // A |= 0
     }
 
@@ -822,7 +822,7 @@ mod t1 {
             cpu.set_flag(FLAG_C, false);
             bus.load(0x10, &[3]);
         });
-        assert_eq!(bus.mem[0x10], 1); // ROR(3) avec C = 0 → 1 (C' = bit 0 de M)
+        assert_eq!(bus.mem[0x10], 1); // ROR(3) avec C = 0 -> 1 (C' = bit 0 de M)
         assert_eq!(cpu.a, 3); // ADC : 1 + 1 + retenue du ROR
     }
 
@@ -832,13 +832,13 @@ mod t1 {
         assert!(bus.log.contains(&Access::Read(0x2002, 0))); // la lecture a bien lieu
     }
 
-    // --- E11b : non officiels immédiats + LAS ---
+    // --- E11b : non officiels immediats + LAS ---
 
     #[test]
     fn anc() {
         let (cpu, _) = run(&[0x0B, 0x80], |cpu, _| cpu.a = 0xFF);
         assert_eq!(cpu.a, 0x80); // A &= M
-        assert!(cpu.flag(FLAG_C)); // bit 7 du résultat posé
+        assert!(cpu.flag(FLAG_C)); // bit 7 du resultat pose
         assert!(cpu.flag(FLAG_N));
     }
 
@@ -846,7 +846,7 @@ mod t1 {
     fn alr() {
         let (cpu, _) = run(&[0x4B, 0x03], |cpu, _| cpu.a = 0xFF);
         assert_eq!(cpu.a, 0x01); // A &= M puis LSR(A) : 03 >> 1
-        assert!(cpu.flag(FLAG_C)); // bit 0 de (A & M) posé avant décalage
+        assert!(cpu.flag(FLAG_C)); // bit 0 de (A & M) pose avant decalage
     }
 
     #[test]
@@ -856,8 +856,8 @@ mod t1 {
             cpu.set_flag(FLAG_C, true);
         });
         assert_eq!(cpu.a, 0xFF); // ((FF & FF) >> 1) | (C << 7)
-        assert!(cpu.flag(FLAG_C)); // bit 6 du résultat posé
-        assert!(!cpu.flag(FLAG_V)); // bits 5 et 6 égaux
+        assert!(cpu.flag(FLAG_C)); // bit 6 du resultat pose
+        assert!(!cpu.flag(FLAG_V)); // bits 5 et 6 egaux
     }
 
     #[test]
@@ -915,19 +915,19 @@ mod t1 {
         verifier_invariants(&ops);
     }
 
-    // --- E12a : échantillonnage des interruptions et séquence NMI/IRQ ---
+    // --- E12a : echantillonnage des interruptions et sequence NMI/IRQ ---
 
-    /// Après reset (S = $FD) : NOP en $0600, vecteur NMI → $0700, vecteur IRQ → $0800.
+    /// Apres reset (S = $FD) : NOP en $0600, vecteur NMI -> $0700, vecteur IRQ -> $0800.
     fn nmi_irq_bus() -> TestBus {
         let mut bus = TestBus::new();
-        bus.set_vector(0xFFFC, 0x0600); // reset → $0600
+        bus.set_vector(0xFFFC, 0x0600); // reset -> $0600
         bus.load(0x0600, &[0xEA]); // NOP
-        bus.set_vector(0xFFFA, 0x0700); // NMI → $0700
-        bus.set_vector(0xFFFE, 0x0800); // IRQ → $0800
+        bus.set_vector(0xFFFA, 0x0700); // NMI -> $0700
+        bus.set_vector(0xFFFE, 0x0800); // IRQ -> $0800
         bus
     }
 
-    /// CPU après la séquence de reset (7 ticks), journal vidé.
+    /// CPU apres la sequence de reset (7 ticks), journal vide.
     fn cpu_apres_reset(bus: &mut TestBus) -> Cpu {
         let mut cpu = Cpu::new();
         for _ in 0..7 {
@@ -942,27 +942,27 @@ mod t1 {
     fn nmi_simple() {
         let mut bus = nmi_irq_bus();
         let mut cpu = cpu_apres_reset(&mut bus);
-        bus.nmi = true; // ligne NMI posée pendant le NOP (front montant)
-        assert_eq!(cpu.step_instruction(&mut bus), 2); // NOP : opcode + exécution
+        bus.nmi = true; // ligne NMI posee pendant le NOP (front montant)
+        assert_eq!(cpu.step_instruction(&mut bus), 2); // NOP : opcode + execution
         assert_eq!(cpu.pc, 0x0601);
-        let ticks = cpu.step_instruction(&mut bus); // séquence d'interruption
+        let ticks = cpu.step_instruction(&mut bus); // sequence d'interruption
         assert_eq!(ticks, 7);
-        assert_eq!(cpu.pc, 0x0700); // vecteur NMI → $0700
+        assert_eq!(cpu.pc, 0x0700); // vecteur NMI -> $0700
         assert!(cpu.flag(FLAG_I)); // I = 1
         assert_eq!(bus.mem[0x01FD], 0x06); // PCH ($0601)
         assert_eq!(bus.mem[0x01FC], 0x01); // PCL
-        assert_eq!(bus.mem[0x01FB], (cpu.p & !FLAG_B) | FLAG_U); // P empilé : B = 0, U = 1
+        assert_eq!(bus.mem[0x01FB], (cpu.p & !FLAG_B) | FLAG_U); // P empile : B = 0, U = 1
     }
 
     #[test]
     fn nmi_front_unique() {
         let mut bus = nmi_irq_bus();
         let mut cpu = cpu_apres_reset(&mut bus);
-        bus.nmi = true; // la ligne reste posée : pas de nouveau front montant
+        bus.nmi = true; // la ligne reste posee : pas de nouveau front montant
         assert_eq!(cpu.step_instruction(&mut bus), 2); // NOP
         assert_eq!(cpu.step_instruction(&mut bus), 7); // un seul NMI
         assert_eq!(cpu.pc, 0x0700);
-        bus.load(0x0700, &[0xEA]); // NOP à l'entrée du gestionnaire
+        bus.load(0x0700, &[0xEA]); // NOP a l'entree du gestionnaire
         assert_eq!(cpu.step_instruction(&mut bus), 2); // pas de second NMI : juste le NOP
         assert_eq!(cpu.pc, 0x0701);
     }
@@ -971,8 +971,8 @@ mod t1 {
     fn irq_masquee() {
         let mut bus = nmi_irq_bus();
         let mut cpu = cpu_apres_reset(&mut bus);
-        assert!(cpu.flag(FLAG_I)); // après reset I = 1 (P = $24) : IRQ masquée
-        bus.irq = true; // ligne posée mais masquée par I
+        assert!(cpu.flag(FLAG_I)); // apres reset I = 1 (P = $24) : IRQ masquee
+        bus.irq = true; // ligne posee mais masquee par I
         assert_eq!(cpu.step_instruction(&mut bus), 2); // NOP, aucune interruption
         assert_eq!(cpu.pc, 0x0601);
         assert!(!cpu.run_irq && !cpu.prev_run_irq);
@@ -982,13 +982,13 @@ mod t1 {
     fn irq_prise() {
         let mut bus = nmi_irq_bus();
         let mut cpu = cpu_apres_reset(&mut bus);
-        cpu.set_flag(FLAG_I, false); // I = 0 : IRQ non masquée (sensible au niveau)
+        cpu.set_flag(FLAG_I, false); // I = 0 : IRQ non masquee (sensible au niveau)
         bus.irq = true;
         assert_eq!(cpu.step_instruction(&mut bus), 2); // NOP
-        let ticks = cpu.step_instruction(&mut bus); // séquence d'interruption (IRQ)
+        let ticks = cpu.step_instruction(&mut bus); // sequence d'interruption (IRQ)
         assert_eq!(ticks, 7);
-        assert_eq!(cpu.pc, 0x0800); // vecteur IRQ $FFFE → $0800
-        assert!(cpu.flag(FLAG_I)); // I reposé par la séquence
+        assert_eq!(cpu.pc, 0x0800); // vecteur IRQ $FFFE -> $0800
+        assert!(cpu.flag(FLAG_I)); // I repose par la sequence
     }
 
     #[test]
@@ -1004,22 +1004,22 @@ mod t1 {
         assert!(cpu.at_instruction_boundary());
         bus.clear_log();
         for _ in 0..8 {
-            cpu.tick(&mut bus); // 4 NOP → PC = $0604
+            cpu.tick(&mut bus); // 4 NOP -> PC = $0604
         }
         assert_eq!(cpu.pc, 0x0604);
-        // NMI posée pendant la lecture de l'opcode du dernier NOP (cycle d'index 8).
+        // NMI posee pendant la lecture de l'opcode du dernier NOP (cycle d'index 8).
         bus.on_access = Some(Box::new(|idx, nmi, _irq| {
             if idx == 8 {
                 *nmi = true;
             }
         }));
-        cpu.tick(&mut bus); // lecture de $0604 → PC = $0605, front montant échantillonné
-        cpu.tick(&mut bus); // dernier NOP exécuté → frontière avec prev_need_nmi posé
+        cpu.tick(&mut bus); // lecture de $0604 -> PC = $0605, front montant echantillonne
+        cpu.tick(&mut bus); // dernier NOP execute -> frontiere avec prev_need_nmi pose
         let ticks = cpu.step_instruction(&mut bus);
         assert_eq!(ticks, 7);
         assert_eq!(cpu.pc, 0x0700);
         assert_eq!(bus.mem[0x01FD], 0x06); // PCH
-        assert_eq!(bus.mem[0x01FC], 0x05); // PCL = $0605 : PC non incrémenté
+        assert_eq!(bus.mem[0x01FC], 0x05); // PCL = $0605 : PC non incremente
     }
 
     #[test]
@@ -1029,40 +1029,40 @@ mod t1 {
         bus.nmi = true;
         assert_eq!(cpu.step_instruction(&mut bus), 2); // NOP
         bus.clear_log();
-        let ticks = cpu.step_instruction(&mut bus); // séquence d'interruption
+        let ticks = cpu.step_instruction(&mut bus); // sequence d'interruption
         assert_eq!(ticks, 7);
-        assert_eq!(bus.log.len(), 7); // 1 accès par tick
+        assert_eq!(bus.log.len(), 7); // 1 acces par tick
         assert_eq!(
             &bus.log[..],
             &[
-                Access::Read(0x0601, 0),     // R*(PC) : PC non incrémenté
+                Access::Read(0x0601, 0),     // R*(PC) : PC non incremente
                 Access::Read(0x0601, 0),     // DummyReadPc
                 Access::Write(0x01FD, 0x06), // PCH
                 Access::Write(0x01FC, 0x01), // PCL
-                Access::Write(0x01FB, 0x24), // P empilé (B = 0)
+                Access::Write(0x01FB, 0x24), // P empile (B = 0)
                 Access::Read(0xFFFA, 0x00),  // vecteur NMI : octet bas
-                Access::Read(0xFFFB, 0x07),  // octet haut → $0700
+                Access::Read(0xFFFB, 0x07),  // octet haut -> $0700
             ]
         );
     }
 
-    // --- E12b : latence CLI/SEI, niveau IRQ après RTI, détournement par NMI ---
+    // --- E12b : latence CLI/SEI, niveau IRQ apres RTI, detournement par NMI ---
 
     #[test]
     fn cli_latence() {
-        let mut bus = nmi_irq_bus(); // reset → $0600 ; IRQ $FFFE → $0800
+        let mut bus = nmi_irq_bus(); // reset -> $0600 ; IRQ $FFFE -> $0800
         bus.load(0x0600, &[0x58, 0xEA, 0xEA]); // CLI NOP NOP
         let mut cpu = cpu_apres_reset(&mut bus);
-        assert!(cpu.flag(FLAG_I)); // après reset I = 1 : l'IRQ est masquée
-        bus.irq = true; // ligne posée en permanence
+        assert!(cpu.flag(FLAG_I)); // apres reset I = 1 : l'IRQ est masquee
+        bus.irq = true; // ligne posee en permanence
         assert_eq!(cpu.step_instruction(&mut bus), 2); // CLI
         assert_eq!(cpu.pc, 0x0601);
-        assert!(!cpu.prev_run_irq); // pas d'interruption juste après le CLI (I posé à l'échantillonnage)
+        assert!(!cpu.prev_run_irq); // pas d'interruption juste apres le CLI (I pose a l'echantillonnage)
         assert_eq!(cpu.step_instruction(&mut bus), 2); // premier NOP
         assert_eq!(cpu.pc, 0x0602);
-        let ticks = cpu.step_instruction(&mut bus); // l'IRQ arrive après ce NOP
+        let ticks = cpu.step_instruction(&mut bus); // l'IRQ arrive apres ce NOP
         assert_eq!(ticks, 7);
-        assert_eq!(cpu.pc, 0x0800); // vecteur $FFFE → $0800
+        assert_eq!(cpu.pc, 0x0800); // vecteur $FFFE -> $0800
     }
 
     #[test]
@@ -1070,55 +1070,55 @@ mod t1 {
         let mut bus = nmi_irq_bus();
         bus.load(0x0600, &[0x78, 0xEA]); // SEI NOP
         let mut cpu = cpu_apres_reset(&mut bus);
-        cpu.set_flag(FLAG_I, false); // I = 0 : l'IRQ est déjà active (niveau)
+        cpu.set_flag(FLAG_I, false); // I = 0 : l'IRQ est deja active (niveau)
         bus.irq = true;
         assert_eq!(cpu.step_instruction(&mut bus), 2); // SEI
         assert_eq!(cpu.pc, 0x0601);
-        assert!(cpu.prev_run_irq); // échantillonnée avant que le SEI pose I
-        let ticks = cpu.step_instruction(&mut bus); // l'IRQ arrive juste après le SEI
+        assert!(cpu.prev_run_irq); // echantillonnee avant que le SEI pose I
+        let ticks = cpu.step_instruction(&mut bus); // l'IRQ arrive juste apres le SEI
         assert_eq!(ticks, 7);
-        assert_eq!(cpu.pc, 0x0800); // vecteur $FFFE → $0800
-        assert_ne!(bus.mem[0x01FB] & FLAG_I, 0); // P empilé avec I = 1 (posé par le SEI)
+        assert_eq!(cpu.pc, 0x0800); // vecteur $FFFE -> $0800
+        assert_ne!(bus.mem[0x01FB] & FLAG_I, 0); // P empile avec I = 1 (pose par le SEI)
     }
 
     #[test]
     fn irq_niveau_apres_rti() {
-        let mut bus = nmi_irq_bus(); // IRQ $FFFE → $0800 ; reset → $0600 (NOP)
+        let mut bus = nmi_irq_bus(); // IRQ $FFFE -> $0800 ; reset -> $0600 (NOP)
         let mut cpu = cpu_apres_reset(&mut bus);
         cpu.set_flag(FLAG_I, false); // I = 0 : l'IRQ est active en permanence
         bus.irq = true;
-        bus.load(0x0800, &[0x40]); // RTI à l'entrée du gestionnaire
+        bus.load(0x0800, &[0x40]); // RTI a l'entree du gestionnaire
         assert_eq!(cpu.step_instruction(&mut bus), 2); // NOP en $0600
         for _ in 0..3 {
-            let ticks = cpu.step_instruction(&mut bus); // IRQ → $0800 (vecteur $FFFE)
+            let ticks = cpu.step_instruction(&mut bus); // IRQ -> $0800 (vecteur $FFFE)
             assert_eq!(ticks, 7);
             assert_eq!(cpu.pc, 0x0800);
-            assert!(cpu.flag(FLAG_I)); // I reposé par la séquence d'interruption
-            let ticks = cpu.step_instruction(&mut bus); // RTI : P restauré (I = 0), PC = $0601
+            assert!(cpu.flag(FLAG_I)); // I repose par la sequence d'interruption
+            let ticks = cpu.step_instruction(&mut bus); // RTI : P restaure (I = 0), PC = $0601
             assert_eq!(ticks, 6);
             assert!(!cpu.flag(FLAG_I));
         }
-        assert_eq!(cpu.step_instruction(&mut bus), 7); // l'IRQ repart après le dernier RTI
+        assert_eq!(cpu.step_instruction(&mut bus), 7); // l'IRQ repart apres le dernier RTI
         assert_eq!(cpu.pc, 0x0800);
     }
 
     #[test]
     fn nmi_nouveau_front() {
-        let mut bus = nmi_irq_bus(); // NMI $FFFA → $0700 ; reset → $0600 (NOP)
+        let mut bus = nmi_irq_bus(); // NMI $FFFA -> $0700 ; reset -> $0600 (NOP)
         let mut cpu = cpu_apres_reset(&mut bus);
-        bus.load(0x0700, &[0xEA, 0xEA]); // NOPs à l'entrée du gestionnaire ($0700 et $0701)
+        bus.load(0x0700, &[0xEA, 0xEA]); // NOPs a l'entree du gestionnaire ($0700 et $0701)
         bus.nmi = true; // front montant pendant le NOP de $0600
         assert_eq!(cpu.step_instruction(&mut bus), 2); // NOP en $0600
-        let ticks = cpu.step_instruction(&mut bus); // NMI n°1 → $0700
+        let ticks = cpu.step_instruction(&mut bus); // NMI no1 -> $0700
         assert_eq!(ticks, 7);
         assert_eq!(cpu.pc, 0x0700);
-        assert!(!cpu.need_nmi); // consommé par ReadVectorHi
-        bus.nmi = false; // front descendant : la ligne repasse à faux
+        assert!(!cpu.need_nmi); // consomme par ReadVectorHi
+        bus.nmi = false; // front descendant : la ligne repasse a faux
         assert_eq!(cpu.step_instruction(&mut bus), 2); // NOP en $0700, pas de NMI
         assert_eq!(cpu.pc, 0x0701);
         bus.nmi = true; // nouveau front montant
         assert_eq!(cpu.step_instruction(&mut bus), 2); // NOP en $0701
-        let ticks = cpu.step_instruction(&mut bus); // NMI n°2 → $0700
+        let ticks = cpu.step_instruction(&mut bus); // NMI no2 -> $0700
         assert_eq!(ticks, 7);
         assert_eq!(cpu.pc, 0x0700);
     }
@@ -1126,41 +1126,41 @@ mod t1 {
     #[test]
     fn brk_detourne() {
         let mut bus = TestBus::new();
-        bus.set_vector(0xFFFC, 0x0600); // reset → $0600
+        bus.set_vector(0xFFFC, 0x0600); // reset -> $0600
         bus.load(0x0600, &[0x00]); // BRK
-        bus.set_vector(0xFFFA, 0x1234); // NMI → $1234
-        bus.set_vector(0xFFFE, 0x5678); // BRK sans NMI → $5678
+        bus.set_vector(0xFFFA, 0x1234); // NMI -> $1234
+        bus.set_vector(0xFFFE, 0x5678); // BRK sans NMI -> $5678
         let mut cpu = cpu_apres_reset(&mut bus);
         bus.on_access = Some(Box::new(|idx, nmi, _irq| {
             if idx == 2 {
-                *nmi = true; // front montant sur l'accès n°2 du BRK (PushPch)
+                *nmi = true; // front montant sur l'acces no2 du BRK (PushPch)
             }
         }));
         let ticks = cpu.step_instruction(&mut bus);
         assert_eq!(ticks, 7); // BRK : opcode + 6 micro-ops
         assert_eq!(cpu.pc, 0x1234); // vecteur $FFFA pris (pas $5678)
-        assert!(!cpu.need_nmi); // consommé par ReadVectorHi
-        assert_eq!(bus.mem[0x01FB], 0x34); // P empilé : B = 1 (P | $30, P = $24)
+        assert!(!cpu.need_nmi); // consomme par ReadVectorHi
+        assert_eq!(bus.mem[0x01FB], 0x34); // P empile : B = 1 (P | $30, P = $24)
         bus.load(0x1234, &[0xEA]);
-        assert_eq!(cpu.step_instruction(&mut bus), 2); // pas de second NMI : la ligne reste posée sans nouveau front
+        assert_eq!(cpu.step_instruction(&mut bus), 2); // pas de second NMI : la ligne reste posee sans nouveau front
     }
 
     #[test]
     fn irq_detourne() {
-        let mut bus = nmi_irq_bus(); // NMI $FFFA → $0700 ; IRQ $FFFE → $0800
+        let mut bus = nmi_irq_bus(); // NMI $FFFA -> $0700 ; IRQ $FFFE -> $0800
         let mut cpu = cpu_apres_reset(&mut bus);
-        cpu.set_flag(FLAG_I, false); // I = 0 : la séquence d'interruption est déclenchée par l'IRQ
+        cpu.set_flag(FLAG_I, false); // I = 0 : la sequence d'interruption est declenchee par l'IRQ
         bus.irq = true;
         assert_eq!(cpu.step_instruction(&mut bus), 2); // NOP en $0600
         bus.on_access = Some(Box::new(|idx, nmi, _irq| {
             if idx == 4 {
-                *nmi = true; // front montant pendant PushPch de la séquence d'interruption
+                *nmi = true; // front montant pendant PushPch de la sequence d'interruption
             }
         }));
         let ticks = cpu.step_instruction(&mut bus);
         assert_eq!(ticks, 7);
         assert_eq!(cpu.pc, 0x0700); // vecteur $FFFA (NMI), pas $FFFE ($0800)
-        assert!(!cpu.need_nmi); // consommé par ReadVectorHi
+        assert!(!cpu.need_nmi); // consomme par ReadVectorHi
         assert!(cpu.flag(FLAG_I));
     }
 }

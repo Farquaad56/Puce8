@@ -1,4 +1,4 @@
-//! PPU minimale : géométrie 341 × 262, VBlank en (241, 1), registres $2000/$2002 (E13a).
+//! PPU minimale : geometrie 341 x 262, VBlank en (241, 1), registres $2000/$2002 (E13a).
 // wiki: PPU_scrolling ; wiki: PPU_masks_and_control
 
 pub mod registers;
@@ -6,17 +6,17 @@ pub mod registers;
 use crate::mapper::Mapper;
 use registers::Registers;
 
-/// PPU : 341 points (0-340) × 262 lignes (0-261) par image.
+/// PPU : 341 points (0-340) x 262 lignes (0-261) par image.
 pub struct Ppu {
     /// Ligne courante (0-261).
     pub line: u16,
     /// Point courant dans la ligne (0-340).
     pub point: u16,
-    /// Image en cours ; 0 = pair. Le drapeau pair/impair bascule à chaque image.
+    /// Image en cours ; 0 = pair. Le drapeau pair/impair bascule a chaque image.
     pub frame: u64,
-    /// VBlank : 1 de (241, 1) à (261, 1).
+    /// VBlank : 1 de (241, 1) a (261, 1).
     pub vblank: bool,
-    /// true une seule fois par image, au moment où VBlank passe à 1.
+    /// true une seule fois par image, au moment ou VBlank passe a 1.
     pub frame_complete: bool,
     /// Registres $2000-$2007.
     pub regs: Registers,
@@ -41,10 +41,10 @@ impl Ppu {
         }
     }
 
-    /// Avance d'un point. Après la ligne 261 : retour à la ligne 0 et `frame += 1`.
+    /// Avance d'un point. Apres la ligne 261 : retour a la ligne 0 et `frame += 1`.
     pub fn tick(&mut self, _mapper: &mut dyn Mapper) {
         let (line, point) = (self.line, self.point);
-        // Image impaire avec rendu actif : on saute de (261, 339) à (0, 0).
+        // Image impaire avec rendu actif : on saute de (261, 339) a (0, 0).
         let fin_image = line == 261 && (point == 340 || self.fin_image_impaire());
         if fin_image {
             self.line = 0;
@@ -81,22 +81,22 @@ impl Ppu {
         value
     }
 
-    /// Lecture sans effet : même valeur que `cpu_read_register`, sans effacer.
+    /// Lecture sans effet : meme valeur que `cpu_read_register`, sans effacer.
     pub fn cpu_peek_register(&self, reg: u16) -> u8 {
         self.regs.peek(usize::from(reg & 0x07) as u8, self.vblank)
     }
 
-    /// Écriture CPU d'un registre PPU (reg = addr & 7).
+    /// Ecriture CPU d'un registre PPU (reg = addr & 7).
     pub fn cpu_write_register(&mut self, reg: u16, v: u8, _mapper: &mut dyn Mapper) {
         self.regs.write(usize::from(reg & 0x07) as u8, v);
     }
 
-    /// Ligne NMI : VBlank active et bit 7 de $2000 posé.
+    /// Ligne NMI : VBlank active et bit 7 de $2000 pose.
     pub fn nmi_line(&self) -> bool {
         self.vblank && self.regs.ctrl & 0x80 != 0
     }
 
-    /// true une seule fois par image, au moment où VBlank passe à 1.
+    /// true une seule fois par image, au moment ou VBlank passe a 1.
     pub fn take_frame_complete(&mut self) -> bool {
         let done = self.frame_complete;
         self.frame_complete = false;
@@ -114,7 +114,7 @@ mod tests {
     use super::*;
     use crate::bus::Bus;
 
-    /// Tick jusqu'à la position visée (toujours atteignable en moins d'une image).
+    /// Tick jusqu'a la position visee (toujours atteignable en moins d'une image).
     fn tick_to(ppu: &mut Ppu, bus: &mut Bus, target: (u16, u16)) {
         while ppu.position() != target {
             ppu.tick(&mut (*bus.mapper));
@@ -139,7 +139,7 @@ mod tests {
         let mut ppu = Ppu::new();
         tick_to(&mut ppu, &mut bus, (241, 0));
         assert!(!ppu.vblank); // encore 0 en (241, 0)
-        ppu.tick(&mut (*bus.mapper)); // → (241, 1)
+        ppu.tick(&mut (*bus.mapper)); // -> (241, 1)
         assert!(ppu.vblank);
         assert!(ppu.take_frame_complete()); // vrai une seule fois
         assert!(!ppu.take_frame_complete());
@@ -159,7 +159,7 @@ mod tests {
         let mut ppu = Ppu::new();
         tick_to(&mut ppu, &mut bus, (241, 1)); // VBlank = 1
         assert_eq!(ppu.cpu_read_register(0x2002, &mut (*bus.mapper)), 0x80);
-        assert_eq!(ppu.cpu_read_register(0x2002, &mut (*bus.mapper)), 0x00); // VBlank effacé
+        assert_eq!(ppu.cpu_read_register(0x2002, &mut (*bus.mapper)), 0x00); // VBlank efface
     }
 
     #[test]
@@ -167,9 +167,9 @@ mod tests {
         let mut bus = Bus::for_test_with_prg(&[0xA9]);
         let mut ppu = Ppu::new();
         tick_to(&mut ppu, &mut bus, (241, 1)); // VBlank = 1
-        assert!(!ppu.nmi_line()); // $2000 = 0 → NMI inactive
+        assert!(!ppu.nmi_line()); // $2000 = 0 -> NMI inactive
         ppu.cpu_write_register(0x2000, 0x80, &mut (*bus.mapper));
-        assert!(ppu.nmi_line()); // VBlank + bit 7 de $2000 posé
+        assert!(ppu.nmi_line()); // VBlank + bit 7 de $2000 pose
     }
 
     #[test]
@@ -177,7 +177,7 @@ mod tests {
         let mut bus = Bus::for_test_with_prg(&[0xA9]);
         let mut ppu = Ppu::new();
         ppu.cpu_write_register(0x2001, 0x18, &mut (*bus.mapper)); // rendu actif
-                                                                  // Image pair : 341 × 262 points ; image impaire : un point de moins.
+                                                                  // Image pair : 341 x 262 points ; image impaire : un point de moins.
         for _ in 0..(341 * 262 + 341 * 262 - 1) {
             ppu.tick(&mut (*bus.mapper));
         }
@@ -188,7 +188,7 @@ mod tests {
     #[test]
     fn image_impaire_sans_rendu() {
         let mut bus = Bus::for_test_with_prg(&[0xA9]);
-        let mut ppu = Ppu::new(); // mask = 0 → pas de saut, même en impaire
+        let mut ppu = Ppu::new(); // mask = 0 -> pas de saut, meme en impaire
         for _ in 0..(341 * 262 + 341 * 262) {
             ppu.tick(&mut (*bus.mapper));
         }

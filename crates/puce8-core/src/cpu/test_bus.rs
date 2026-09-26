@@ -1,25 +1,25 @@
-//! Bus de test : mémoire 64 Ko + journal des accès (1 entrée = 1 cycle).
+//! Bus de test : memoire 64 Ko + journal des acces (1 entree = 1 cycle).
 
 use super::CpuBus;
 
-/// Accès journalisé par le [TestBus].
+/// Acces journalise par le [TestBus].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Access {
     Read(u16, u8),
     Write(u16, u8),
 }
 
-/// Callback avant un accès : index du cycle + lignes NMI/IRQ (modifiables).
+/// Callback avant un acces : index du cycle + lignes NMI/IRQ (modifiables).
 pub type AccessHook = dyn FnMut(usize, &mut bool, &mut bool);
 
-/// Bus de test : mémoire 64 Ko + journal des accès (1 entrée = 1 cycle).
+/// Bus de test : memoire 64 Ko + journal des acces (1 entree = 1 cycle).
 pub struct TestBus {
     pub mem: Box<[u8; 0x10000]>,
-    /// 1 entrée par accès = 1 par cycle.
+    /// 1 entree par acces = 1 par cycle.
     pub log: Vec<Access>,
     pub nmi: bool,
     pub irq: bool,
-    /// appelé AVANT chaque accès avec l'index du cycle (log.len())
+    /// appele AVANT chaque acces avec l'index du cycle (log.len())
     pub on_access: Option<Box<AccessHook>>,
 }
 
@@ -34,7 +34,7 @@ impl TestBus {
         }
     }
 
-    /// Charge `bytes` en mémoire à partir de `addr` (repli au-delà de 64 Ko).
+    /// Charge `bytes` en memoire a partir de `addr` (repli au-dela de 64 Ko).
     pub fn load(&mut self, addr: u16, bytes: &[u8]) {
         for (i, &b) in bytes.iter().enumerate() {
             let idx = (usize::from(addr) + i) % 0x10000;
@@ -42,7 +42,7 @@ impl TestBus {
         }
     }
 
-    /// Vecteur d'interruption little-endian : octet bas à `vector`, haut à `vector + 1`.
+    /// Vecteur d'interruption little-endian : octet bas a `vector`, haut a `vector + 1`.
     pub fn set_vector(&mut self, vector: u16, target: u16) {
         let lo = usize::from(vector);
         let hi = usize::from(vector.wrapping_add(1));
@@ -54,7 +54,7 @@ impl TestBus {
         self.log.clear();
     }
 
-    /// Callback avant chaque accès, avec l'index du cycle (log.len()).
+    /// Callback avant chaque acces, avec l'index du cycle (log.len()).
     fn before_access(&mut self) {
         if let Some(cb) = &mut self.on_access {
             cb(self.log.len(), &mut self.nmi, &mut self.irq);
@@ -96,11 +96,11 @@ mod tests {
     #[test]
     fn testbus_journal() {
         let mut bus = TestBus::new();
-        bus.load(0x100, &[0xAB]); // la charge n'est pas journalisée
+        bus.load(0x100, &[0xAB]); // la charge n'est pas journalisee
         assert_eq!(bus.read(0x10), 0);
         bus.write(0x20, 1);
         assert_eq!(bus.log, vec![Access::Read(0x10, 0), Access::Write(0x20, 1)]);
-        let _ = bus.peek(0x30); // sans aucun effet → pas journalisé
+        let _ = bus.peek(0x30); // sans aucun effet -> pas journalise
         assert_eq!(bus.log.len(), 2);
         bus.clear_log();
         assert!(bus.log.is_empty());
@@ -125,8 +125,8 @@ mod tests {
         assert!(!bus.nmi_line());
         bus.read(0x10); // index 0
         bus.write(0x20, 1); // index 1
-        assert!(!bus.nmi_line()); // faux après 2 accès
-        bus.read(0x30); // index 2 → le callback pose nmi
-        assert!(bus.nmi_line()); // vrai après 3 accès
+        assert!(!bus.nmi_line()); // faux apres 2 acces
+        bus.read(0x30); // index 2 -> le callback pose nmi
+        assert!(bus.nmi_line()); // vrai apres 3 acces
     }
 }

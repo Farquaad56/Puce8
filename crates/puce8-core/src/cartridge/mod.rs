@@ -1,4 +1,4 @@
-//! Cartouche : lecture du fichier `.nes` (en-tête iNES / NES 2.0).
+//! Cartouche : lecture du fichier `.nes` (en-tete iNES / NES 2.0).
 
 pub mod ines;
 

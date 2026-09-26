@@ -19,7 +19,7 @@ pub struct Nrom {
 impl Nrom {
     pub fn new(cart: Cartridge) -> Self {
         let chr = ChrMemory::from_cart(&cart);
-        // TESTS §T3.b : les ROM de test blargg écrivent leurs résultats en $6000.
+        // TESTS par. T3.b : les ROM de test blargg ecrivent leurs resultats en $6000.
         let prg_ram = vec![0u8; cart.prg_ram_size.max(PRG_RAM_MIN)];
         Nrom {
             chr,
@@ -52,7 +52,7 @@ impl Nrom {
 
 impl Mapper for Nrom {
     fn cpu_read(&mut self, addr: u16) -> Option<u8> {
-        // $4020-$5FFF : rien de branché → open bus (None).
+        // $4020-$5FFF : rien de branche -> open bus (None).
         if (0x4020..=0x7FFF).contains(&addr) {
             return self.ram_read(addr);
         }
@@ -60,7 +60,7 @@ impl Mapper for Nrom {
     }
 
     fn cpu_peek(&self, addr: u16) -> Option<u8> {
-        // NROM : aucune lecture n'a d'effet de bord → identique à `cpu_read`.
+        // NROM : aucune lecture n'a d'effet de bord -> identique a `cpu_read`.
         if (0x4020..=0x7FFF).contains(&addr) {
             return self.ram_read(addr);
         }
@@ -72,7 +72,7 @@ impl Mapper for Nrom {
             let offset = (addr - 0x6000) as usize % self.prg_ram.len();
             self.prg_ram[offset] = value;
         }
-        // $8000-$FFFF : PRG-ROM, écritures ignorées.
+        // $8000-$FFFF : PRG-ROM, ecritures ignorees.
     }
 
     fn ppu_read(&mut self, addr: u16) -> u8 {
@@ -105,7 +105,7 @@ impl Mapper for Nrom {
 mod tests {
     use super::*;
 
-    /// ROM synthétique : PRG = `i % 256`, CHR = `0xC0 | (i % 64)`.
+    /// ROM synthetique : PRG = `i % 256`, CHR = `0xC0 | (i % 64)`.
     fn make_rom(prg_banks: u8, chr_banks: u8, flags6: u8, flags7: u8) -> Vec<u8> {
         let mut rom = vec![b'N', b'E', b'S', 0x1A, prg_banks, chr_banks, flags6, flags7];
         rom.extend_from_slice(&[0; 8]);
@@ -126,7 +126,7 @@ mod tests {
         assert_eq!(m.cpu_read(0x8000), Some(0));
         assert_eq!(m.cpu_read(0x8000), m.cpu_read(0xC000));
         assert_eq!(m.cpu_read(0xBFFF), m.cpu_read(0xFFFF));
-        // cpu_peek : même valeur que cpu_read, sans effet de bord.
+        // cpu_peek : meme valeur que cpu_read, sans effet de bord.
         assert_eq!(m.cpu_peek(0xC000), m.cpu_read(0xC000));
     }
 
@@ -173,14 +173,14 @@ mod tests {
 
     #[test]
     fn chr_ram_rw() {
-        let mut m = Nrom::new(cart(1, 0, 0, 0)); // pas de CHR-ROM → CHR-RAM
+        let mut m = Nrom::new(cart(1, 0, 0, 0)); // pas de CHR-ROM -> CHR-RAM
         m.ppu_write(0x1234, 0x5A);
         assert_eq!(m.ppu_read(0x1234), 0x5A);
     }
 
     #[test]
     fn mirroring_entete() {
-        let m = Nrom::new(cart(1, 1, 0x01, 0)); // bit 0 de f6 → vertical
+        let m = Nrom::new(cart(1, 1, 0x01, 0)); // bit 0 de f6 -> vertical
         assert_eq!(m.mirroring(), Mirroring::Vertical);
     }
 
@@ -188,8 +188,8 @@ mod tests {
     fn battery_ram() {
         let m = Nrom::new(cart(1, 1, 0, 0));
         assert!(m.battery_ram().is_none());
-        let mut mb = Nrom::new(cart(1, 1, 0x02, 0)); // bit 1 de f6 → batterie
-        let ram = mb.battery_ram().expect("batterie présente");
+        let mut mb = Nrom::new(cart(1, 1, 0x02, 0)); // bit 1 de f6 -> batterie
+        let ram = mb.battery_ram().expect("batterie presente");
         assert_eq!(ram.len(), PRG_RAM_MIN);
         mb.load_battery_ram(&[0xDE, 0xAD]);
         let ram = mb.battery_ram().unwrap();

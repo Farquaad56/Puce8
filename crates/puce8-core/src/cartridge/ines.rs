@@ -1,4 +1,4 @@
-//! Parsing de l'en-tête iNES / NES 2.0.
+//! Parsing de l'en-tete iNES / NES 2.0.
 // wiki: INES (iNES file format) ; wiki: NES_2_0 (Header)
 
 use std::fmt;
@@ -25,19 +25,19 @@ pub enum RomError {
 impl fmt::Display for RomError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            RomError::TooShort => write!(f, "fichier trop court pour un en-tête iNES"),
+            RomError::TooShort => write!(f, "fichier trop court pour un en-tete iNES"),
             RomError::BadMagic => write!(f, "signature \"NES\\x1A\" absente"),
             RomError::Truncated { expected, got } => {
-                write!(f, "fichier tronqué : {expected} octets attendus, {got} lus")
+                write!(f, "fichier tronque : {expected} octets attendus, {got} lus")
             }
-            RomError::Unsupported(msg) => write!(f, "non supporté : {msg}"),
+            RomError::Unsupported(msg) => write!(f, "non supporte : {msg}"),
         }
     }
 }
 
 impl std::error::Error for RomError {}
 
-/// Cartouche validée (sans mapper).
+/// Cartouche validee (sans mapper).
 #[derive(Clone, Debug)]
 pub struct Cartridge {
     pub mapper_id: u16,
@@ -47,14 +47,14 @@ pub struct Cartridge {
     pub chr_rom: Vec<u8>,
     /// 0 si CHR-ROM.
     pub chr_ram_size: usize,
-    /// 8192 par défaut.
+    /// 8192 par defaut.
     pub prg_ram_size: usize,
     pub mirroring: Mirroring,
     pub has_battery: bool,
     pub is_nes2: bool,
 }
 
-/// Taille NES 2.0 codée `64 << n` ; `n = 0` signifie « aucune ».
+/// Taille NES 2.0 codee `64 << n` ; `n = 0` signifie "aucune".
 // wiki: NES_2_0 (PRG-(NV)RAM/EEPROM)
 fn shift_size(n: u8) -> usize {
     if n == 0 {
@@ -91,7 +91,7 @@ impl Cartridge {
             let size_msb = header[9];
             let prg_msb = size_msb & 0x0F;
             let chr_msb = size_msb >> 4;
-            // wiki: NES_2_0 (PRG-ROM Area) : MSB = 0xF → notation exposant-multiplicateur
+            // wiki: NES_2_0 (PRG-ROM Area) : MSB = 0xF -> notation exposant-multiplicateur
             if prg_msb == 0x0F || chr_msb == 0x0F {
                 return Err(RomError::Unsupported(
                     "taille ROM NES 2.0 au format exposant-multiplicateur".to_string(),
@@ -104,7 +104,7 @@ impl Cartridge {
             let chr = (usize::from(chr_msb) << 8) | usize::from(header[5]);
             (mapper, header[8] >> 4, prg, chr)
         } else {
-            // wiki: INES (Variant comparison) : en-tête « sale » (ex. « DiskDude! »)
+            // wiki: INES (Variant comparison) : en-tete "sale" (ex. "DiskDude!")
             let dirty = header[12..16].iter().any(|&b| b != 0);
             let mapper = if dirty {
                 u16::from(flags6 >> 4)
@@ -118,7 +118,7 @@ impl Cartridge {
         let chr_size = chr_banks * CHR_BANK_SIZE;
         let trainer_size = if has_trainer { TRAINER_SIZE } else { 0 };
 
-        // Ordre : en-tête → trainer → PRG-ROM → CHR-ROM → reste ignoré.
+        // Ordre : en-tete -> trainer -> PRG-ROM -> CHR-ROM -> reste ignore.
         let prg_start = HEADER_SIZE + trainer_size;
         let chr_start = prg_start + prg_size;
         let expected = chr_start + chr_size;
@@ -172,7 +172,7 @@ impl Cartridge {
         })
     }
 
-    /// Résumé sur une ligne, ex. `mapper=0 prg=16K chr=8K mir=V bat=0 nes2=0`.
+    /// Resume sur une ligne, ex. `mapper=0 prg=16K chr=8K mir=V bat=0 nes2=0`.
     pub fn summary(&self) -> String {
         let chr = if self.chr_rom.is_empty() {
             format!("ram{}K", self.chr_ram_size / 1024)
@@ -202,8 +202,8 @@ impl Cartridge {
 mod tests {
     use super::*;
 
-    /// ROM synthétique : PRG = `i % 256`, CHR = `0xC0 | (i % 64)`.
-    /// Si `flags6` a le bit trainer, 512 octets de 0xEE sont insérés avant la PRG.
+    /// ROM synthetique : PRG = `i % 256`, CHR = `0xC0 | (i % 64)`.
+    /// Si `flags6` a le bit trainer, 512 octets de 0xEE sont inseres avant la PRG.
     fn make_rom(prg_banks: u8, chr_banks: u8, flags6: u8, flags7: u8) -> Vec<u8> {
         let mut rom = vec![b'N', b'E', b'S', 0x1A, prg_banks, chr_banks, flags6, flags7];
         rom.extend_from_slice(&[0; 8]);
@@ -311,7 +311,7 @@ mod tests {
             "/../../tests/roms/other/nestest.nes"
         );
         let Ok(data) = std::fs::read(path) else {
-            eprintln!("vrai_nestest ignoré : {path} absent");
+            eprintln!("vrai_nestest ignore : {path} absent");
             return;
         };
         let cart = Cartridge::from_bytes(&data).unwrap();
@@ -320,7 +320,7 @@ mod tests {
         assert_eq!(cart.chr_rom.len(), 8_192);
     }
 
-    // Complément (hors liste des 11) : règles NES 2.0 de la spécification.
+    // Complement (hors liste des 11) : regles NES 2.0 de la specification.
     #[test]
     fn nes2_exposant_refuse() {
         let mut rom = make_rom(1, 1, 0, 0x08);

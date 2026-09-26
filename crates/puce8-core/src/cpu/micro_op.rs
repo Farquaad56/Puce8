@@ -1,8 +1,8 @@
-// FICHIER GÉNÉRÉ — ne pas modifier à la main.
+// FICHIER GENERE - ne pas modifier a la main.
 // Contrat : Docs_Implementation/annexes/D_micro_ops.md (section D2).
-// Une MicroOp = UN cycle CPU = EXACTEMENT UN accès bus.
+// Une MicroOp = UN cycle CPU = EXACTEMENT UN acces bus.
 
-/// Résultat d'une micro-op : continuer la séquence, ou terminer l'instruction.
+/// Resultat d'une micro-op : continuer la sequence, ou terminer l'instruction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Flow {
     Next,
@@ -28,9 +28,9 @@ pub enum MicroOp {
     ReadPtrLo,            // addr = R(ptr)
     ReadPtrHi,            // addr |= R((ptr + 1) & 0xFF) << 8
     ReadPtrHiAddY,        // hi = R((ptr+1)&0xFF) ; base = hi:lo ; addr = base + Y ; crossed
-    ReadIndexedPageCheck, // crossed ? R*(non corrigée) : (v = R(addr) ; exec_read ; Done)
-    DummyReadIndexed,     // R*(non corrigée), toujours (Write / Rmw)
-    // --- données
+    ReadIndexedPageCheck, // crossed ? R*(non corrigee) : (v = R(addr) ; exec_read ; Done)
+    DummyReadIndexed,     // R*(non corrigee), toujours (Write / Rmw)
+    // --- donnees
     ReadExec,      // v = R(addr) ; exec_read(op, v) ; Done
     WriteExec,     // W(addr, exec_write(op)) ; Done
     RmwRead,       // data = R(addr)
@@ -58,19 +58,19 @@ pub enum MicroOp {
     ReadIndirectLo, // data = R(addr)
     JmpIndirectHi,  // hi = R((addr & 0xFF00) | ((addr + 1) & 0xFF)) ; PC = hi:data ; Done
     // --- interruptions
-    BrkPadding,   // R(PC++) (octet ignoré)
+    BrkPadding,   // R(PC++) (octet ignore)
     ReadVectorLo, // addr = R(vector)
     ReadVectorHi, // PC = R(vector + 1):addr ; si vector == $FFFA : need_nmi = false ; Done
     // --- branchements
-    BranchFetch,   // data = R(PC++) ; condition fausse → Done
-    BranchTaken,   // R*(PC) ; addr = PC + (data as i8) ; même page → PC = addr ; Done
+    BranchFetch,   // data = R(PC++) ; condition fausse -> Done
+    BranchTaken,   // R*(PC) ; addr = PC + (data as i8) ; meme page -> PC = addr ; Done
     BranchFixPage, // R*((PC & 0xFF00) | (addr & 0xFF)) ; PC = addr ; Done
     // --- blocage
     Jam, // R*(0xFFFF) ; jammed = true ; Done
 }
 
 impl MicroOp {
-    /// Vrai si cette micro-op ÉCRIT sur le bus (la DMA ne peut pas arrêter le CPU sur une écriture).
+    /// Vrai si cette micro-op ECRIT sur le bus (la DMA ne peut pas arreter le CPU sur une ecriture).
     pub const fn is_write(self) -> bool {
         matches!(
             self,

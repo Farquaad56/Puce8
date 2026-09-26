@@ -1,17 +1,17 @@
-//! Registres de la PPU vus par le CPU ($2000-$2007) — E13a : $2000, $2001, lecture $2002.
+//! Registres de la PPU vus par le CPU ($2000-$2007) - E13a : $2000, $2001, lecture $2002.
 // wiki: PPU_registers ; wiki: PPU_masks_and_control
 
-/// Registre de contrôle $2000 (bit 7 = NMI activée).
+/// Registre de controle $2000 (bit 7 = NMI activee).
 pub struct Registers {
-    /// $2000 : bit 7 = NMI activée.
+    /// $2000 : bit 7 = NMI activee.
     pub ctrl: u8,
     /// $2001 : bits 3-4 = rendu actif.
     pub mask: u8,
-    /// $2002-$2007 : mémorisées seulement pour l'instant. // E15
+    /// $2002-$2007 : memorisees seulement pour l'instant. // E15
     other: [u8; 6],
-    /// Valeur renvoyée par les lectures de $2003-$2007 (toujours 0 pour l'instant).
+    /// Valeur renvoyee par les lectures de $2003-$2007 (toujours 0 pour l'instant).
     pub io_latch: u8,
-    /// Effacé à chaque lecture de $2002.
+    /// Efface a chaque lecture de $2002.
     pub w: bool,
 }
 
@@ -32,7 +32,7 @@ impl Registers {
         }
     }
 
-    /// Écriture CPU : $2000 → `ctrl`, $2001 → `mask`, autres mémorisées seulement. // E15
+    /// Ecriture CPU : $2000 -> `ctrl`, $2001 -> `mask`, autres memorisees seulement. // E15
     pub fn write(&mut self, reg: u8, v: u8) {
         match reg {
             0 => self.ctrl = v,
@@ -42,7 +42,7 @@ impl Registers {
         }
     }
 
-    /// Lecture CPU : $2002 → (VBlank << 7) | io_latch & 0x1F, puis `w` = false ; autres → io_latch.
+    /// Lecture CPU : $2002 -> (VBlank << 7) | io_latch & 0x1F, puis `w` = false ; autres -> io_latch.
     pub fn read(&mut self, reg: u8, vblank: bool) -> u8 {
         match reg {
             2 => {
@@ -54,7 +54,7 @@ impl Registers {
         }
     }
 
-    /// Lecture sans effet : même valeur que `read`, sans effacer `w`.
+    /// Lecture sans effet : meme valeur que `read`, sans effacer `w`.
     pub fn peek(&self, reg: u8, vblank: bool) -> u8 {
         match reg {
             2 => (u8::from(vblank) << 7) | (self.io_latch & 0x1F),

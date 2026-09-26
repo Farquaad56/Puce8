@@ -1,21 +1,21 @@
-//! Exécution des micro-ops et des opérations (E04b : reset, NOP, JAM ; E05a : adressage en lecture + LDA ; E05b : écriture/RMW + sondes STA/INC ; E06a : load/store/transferts ; E07a : ADC/SBC/AND/ORA/EOR ; E07b : CMP/CPX/CPY, BIT, INX/INY/DEX/DEY ; E08a : ASL/LSR/ROL/ROR A ; E08b : RMW mémoire + DEC ; E09a : branchements et JMP ; E09b : JSR/RTS/pile/instructions de flags ; E09c : BRK/RTI ; E11a : non officiels RMW/LAX/SAX/NOP).
+//! Execution des micro-ops et des operations (E04b : reset, NOP, JAM ; E05a : adressage en lecture + LDA ; E05b : ecriture/RMW + sondes STA/INC ; E06a : load/store/transferts ; E07a : ADC/SBC/AND/ORA/EOR ; E07b : CMP/CPX/CPY, BIT, INX/INY/DEX/DEY ; E08a : ASL/LSR/ROL/ROR A ; E08b : RMW memoire + DEC ; E09a : branchements et JMP ; E09b : JSR/RTS/pile/instructions de flags ; E09c : BRK/RTI ; E11a : non officiels RMW/LAX/SAX/NOP).
 
 use super::micro_op::{Flow, MicroOp};
 use super::operations::Operation;
 use super::CpuBus;
 
-/// Bits du registre P. B n'est jamais stocké ; U est toujours posé.
+/// Bits du registre P. B n'est jamais stocke ; U est toujours pose.
 pub(crate) const FLAG_C: u8 = 0x01; // retenue
-pub(crate) const FLAG_Z: u8 = 0x02; // zéro
-pub(crate) const FLAG_I: u8 = 0x04; // masque IRQ (posé = masqué)
-pub(crate) const FLAG_D: u8 = 0x08; // mode décimal
-pub(crate) const FLAG_B: u8 = 0x10; // break — jamais stocké dans P
-pub(crate) const FLAG_U: u8 = 0x20; // toujours posé
-pub(crate) const FLAG_V: u8 = 0x40; // dépassement
-pub(crate) const FLAG_N: u8 = 0x80; // négatif
+pub(crate) const FLAG_Z: u8 = 0x02; // zero
+pub(crate) const FLAG_I: u8 = 0x04; // masque IRQ (pose = masque)
+pub(crate) const FLAG_D: u8 = 0x08; // mode decimal
+pub(crate) const FLAG_B: u8 = 0x10; // break - jamais stocke dans P
+pub(crate) const FLAG_U: u8 = 0x20; // toujours pose
+pub(crate) const FLAG_V: u8 = 0x40; // depassement
+pub(crate) const FLAG_N: u8 = 0x80; // negatif
 
-// Disposition des bits de P (spécification E04b).
-// (L'égalité de tuples n'est pas `const` en Rust stable : on compare octet par octet.)
+// Disposition des bits de P (specification E04b).
+// (L'egalite de tuples n'est pas `const` en Rust stable : on compare octet par octet.)
 const _: () = assert!(
     FLAG_C == 0x01
         && FLAG_Z == 0x02
@@ -28,7 +28,7 @@ const _: () = assert!(
 );
 
 impl super::Cpu {
-    /// Exécute une micro-op : exactement un accès bus.
+    /// Execute une micro-op : exactement un acces bus.
     pub(crate) fn run_micro_op(&mut self, m: MicroOp, bus: &mut impl CpuBus) -> Flow {
         match m {
             MicroOp::DummyReadPc => {
@@ -53,7 +53,7 @@ impl super::Cpu {
                 let hi = bus.read(self.vector.wrapping_add(1));
                 self.pc = (u16::from(hi) << 8) | self.addr;
                 if self.vector == 0xFFFA {
-                    self.need_nmi = false; // vecteur NMI lu : la demande est consommée
+                    self.need_nmi = false; // vecteur NMI lu : la demande est consommee
                 }
                 Flow::Done
             }
@@ -62,7 +62,7 @@ impl super::Cpu {
                 self.jammed = true;
                 Flow::Done
             }
-            // --- E05a : adressage en lecture (1 accès bus par micro-op) ---
+            // --- E05a : adressage en lecture (1 acces bus par micro-op) ---
             MicroOp::ReadImmExec => {
                 let v = bus.read(self.pc);
                 self.pc = self.pc.wrapping_add(1);
@@ -121,7 +121,7 @@ impl super::Cpu {
             }
             MicroOp::ReadIndexedPageCheck => {
                 if self.crossed {
-                    // Franchissement de page : cycle de pénalité sur l'adresse non corrigée.
+                    // Franchissement de page : cycle de penalite sur l'adresse non corrigee.
                     let _ = bus.read((self.base & 0xFF00) | (self.addr & 0xFF));
                     Flow::Next
                 } else {
@@ -135,13 +135,13 @@ impl super::Cpu {
                 self.exec_read(self.op, v);
                 Flow::Done
             }
-            // --- E05b : écriture et RMW (1 accès bus par micro-op) ---
+            // --- E05b : ecriture et RMW (1 acces bus par micro-op) ---
             MicroOp::DummyReadIndexed => {
                 let _ = bus.read((self.base & 0xFF00) | (self.addr & 0xFF));
                 Flow::Next
             }
             MicroOp::WriteExec => {
-                // E11c : l'écriture porte sur l'addr après exec_write (qui peut le corriger).
+                // E11c : l'ecriture porte sur l'addr apres exec_write (qui peut le corriger).
                 let v = self.exec_write(self.op);
                 bus.write(self.addr, v);
                 Flow::Done
@@ -160,7 +160,7 @@ impl super::Cpu {
                 bus.write(self.addr, self.data);
                 Flow::Done
             }
-            // --- E09a : branchements et JMP (1 accès bus par micro-op) ---
+            // --- E09a : branchements et JMP (1 acces bus par micro-op) ---
             MicroOp::BranchFetch => {
                 self.data = bus.read(self.pc);
                 self.pc = self.pc.wrapping_add(1);
@@ -200,7 +200,7 @@ impl super::Cpu {
                 self.pc = (u16::from(hi) << 8) | u16::from(self.data);
                 Flow::Done
             }
-            // --- E09b : pile et JSR/RTS (1 accès bus par micro-op) ---
+            // --- E09b : pile et JSR/RTS (1 acces bus par micro-op) ---
             MicroOp::DummyReadStack => {
                 let _ = bus.read(0x0100 + u16::from(self.s));
                 Flow::Next
@@ -221,7 +221,7 @@ impl super::Cpu {
                 Flow::Done
             }
             MicroOp::PushPPhp => {
-                // B forcé à 1 dans l'octet empilé (bit 5).
+                // B force a 1 dans l'octet empile (bit 5).
                 bus.write(0x0100 + u16::from(self.s), self.p | 0x30);
                 self.s = self.s.wrapping_sub(1);
                 Flow::Done
@@ -236,7 +236,7 @@ impl super::Cpu {
             MicroOp::PullPPlp => {
                 self.s = self.s.wrapping_add(1);
                 let v = bus.read(0x0100 + u16::from(self.s));
-                self.p = (v & 0xCF) | 0x20; // B ignoré, U toujours posé
+                self.p = (v & 0xCF) | 0x20; // B ignore, U toujours pose
                 Flow::Done
             }
             MicroOp::PullPcl => {
@@ -260,32 +260,32 @@ impl super::Cpu {
                 self.pc = (u16::from(hi) << 8) | self.addr;
                 Flow::Done
             }
-            // --- E09c : BRK/RTI (1 accès bus par micro-op) ---
+            // --- E09c : BRK/RTI (1 acces bus par micro-op) ---
             MicroOp::BrkPadding => {
-                let _ = bus.read(self.pc); // octet ignoré (padding)
+                let _ = bus.read(self.pc); // octet ignore (padding)
                 self.pc = self.pc.wrapping_add(1);
                 Flow::Next
             }
             MicroOp::PushPBrk => {
-                // B forcé à 1 dans the octet empilé (bit 5), avant de poser I.
+                // B force a 1 dans the octet empile (bit 5), avant de poser I.
                 bus.write(0x0100 + u16::from(self.s), self.p | 0x30);
                 self.s = self.s.wrapping_sub(1);
-                self.set_flag(FLAG_I, true); // I = 1 : les IRQ are masquées
+                self.set_flag(FLAG_I, true); // I = 1 : les IRQ are masquees
                 self.vector = if self.need_nmi { 0xFFFA } else { 0xFFFE };
                 Flow::Next
             }
             MicroOp::PushPInterrupt => {
-                // B effacé dans l'octet empilé (bit 5), U forcé à 1, avant de poser I.
+                // B efface dans l'octet empile (bit 5), U force a 1, avant de poser I.
                 bus.write(0x0100 + u16::from(self.s), (self.p & !FLAG_B) | FLAG_U);
                 self.s = self.s.wrapping_sub(1);
-                self.set_flag(FLAG_I, true); // I = 1 : les IRQ sont masquées
+                self.set_flag(FLAG_I, true); // I = 1 : les IRQ sont masquees
                 self.vector = if self.need_nmi { 0xFFFA } else { 0xFFFE };
                 Flow::Next
             }
             MicroOp::PullP => {
                 self.s = self.s.wrapping_add(1);
                 let v = bus.read(0x0100 + u16::from(self.s));
-                self.p = (v & 0xCF) | 0x20; // B restauré, U toujours posé
+                self.p = (v & 0xCF) | 0x20; // B restaure, U toujours pose
                 Flow::Next
             }
             MicroOp::PullPchRti => {
@@ -323,7 +323,7 @@ impl super::Cpu {
         }
     }
 
-    /// « Quoi » d'une instruction implicite (E04b : NOP ; E06a : transferts ; E07b : INX/INY/DEX/DEY ; E08a : ASL/LSR/ROL/ROR A ; E09b : CLC SEC CLI SEI CLV CLD SED).
+    /// "Quoi" d'une instruction implicite (E04b : NOP ; E06a : transferts ; E07b : INX/INY/DEX/DEY ; E08a : ASL/LSR/ROL/ROR A ; E09b : CLC SEC CLI SEI CLV CLD SED).
     pub(crate) fn exec_implied(&mut self, op: Operation) {
         match op {
             Operation::Nop => {}
@@ -379,7 +379,7 @@ impl super::Cpu {
         }
     }
 
-    /// « Quoi » d'une lecture (E05a : LDA ; E06a : LDX/LDY ; E07a : ADC/SBC/AND/ORA/EOR ; E07b : CMP/CPX/CPY/BIT ;
+    /// "Quoi" d'une lecture (E05a : LDA ; E06a : LDX/LDY ; E07a : ADC/SBC/AND/ORA/EOR ; E07b : CMP/CPX/CPY/BIT ;
     /// E11a : LAX/NOP ; E11b : ANC/ALR/ARR/AXS/LXA/XAA/LAS).
     pub(crate) fn exec_read(&mut self, op: Operation, value: u8) {
         match op {
@@ -396,7 +396,7 @@ impl super::Cpu {
                 self.set_zn(value); // N, Z
             }
             Operation::Adc => self.add_with_carry(value),
-            Operation::Sbc => self.add_with_carry(value ^ 0xFF), // SBC = ADC avec M ^ 0xFF (D ignoré)
+            Operation::Sbc => self.add_with_carry(value ^ 0xFF), // SBC = ADC avec M ^ 0xFF (D ignore)
             Operation::And => {
                 self.a &= value;
                 self.set_zn(self.a); // N, Z
@@ -413,7 +413,7 @@ impl super::Cpu {
             Operation::Cpx => self.compare(self.x, value),
             Operation::Cpy => self.compare(self.y, value),
             Operation::Bit => {
-                // A inchangé ; C non touché.
+                // A inchange ; C non touche.
                 self.set_flag(FLAG_Z, (self.a & value) == 0);
                 self.set_flag(FLAG_N, value & 0x80 != 0);
                 self.set_flag(FLAG_V, value & 0x40 != 0);
@@ -425,7 +425,7 @@ impl super::Cpu {
                 self.set_zn(value); // N, Z
             }
             Operation::Anc => {
-                // E11b : A &= M ; N, Z ; C = bit 7 du résultat (0B/2B).
+                // E11b : A &= M ; N, Z ; C = bit 7 du resultat (0B/2B).
                 self.a &= value;
                 self.set_zn(self.a); // N, Z
                 self.set_flag(FLAG_C, self.a & 0x80 != 0);
@@ -436,7 +436,7 @@ impl super::Cpu {
                 self.a = self.lsr(self.a);
             }
             Operation::Arr => {
-                // E11b : A = ((A & M) >> 1) | (C << 7) ; N, Z ; C = bit 6 ; V = bits 5–6 différents (6B).
+                // E11b : A = ((A & M) >> 1) | (C << 7) ; N, Z ; C = bit 6 ; V = bits 5-6 differents (6B).
                 let c = self.flag(FLAG_C) as u8;
                 self.a = ((self.a & value) >> 1) | (c << 7);
                 self.set_zn(self.a); // N, Z
@@ -469,18 +469,18 @@ impl super::Cpu {
                 self.s = v;
                 self.set_zn(v); // N, Z
             }
-            Operation::Nop => {} // E11a : NOP avec opérande — la lecture a lieu, aucun effet
+            Operation::Nop => {} // E11a : NOP avec operande - la lecture a lieu, aucun effet
             other => unimplemented!("{:?}", other),
         }
     }
 
-    /// Valeur écrite par l'instruction (E05b : STA ; E06a : STX/STY ; E11a : SAX ; E11c : SHY/SHX/AHX/TAS).
+    /// Valeur ecrite par l'instruction (E05b : STA ; E06a : STX/STY ; E11a : SAX ; E11c : SHY/SHX/AHX/TAS).
     pub(crate) fn exec_write(&mut self, op: Operation) -> u8 {
         match op {
             Operation::Sta => self.a,                               // aucun flag
             Operation::Stx => self.x,                               // aucun flag
             Operation::Sty => self.y,                               // aucun flag
-            Operation::Sax => self.a & self.x, // E11a : A & X tronqué ; aucun flag
+            Operation::Sax => self.a & self.x, // E11a : A & X tronque ; aucun flag
             Operation::Shy => self.unstable_store(self.y), // E11c : aucun flag
             Operation::Shx => self.unstable_store(self.x), // E11c : aucun flag
             Operation::Ahx => self.unstable_store(self.a & self.x), // E11c : aucun flag
@@ -493,9 +493,9 @@ impl super::Cpu {
         }
     }
 
-    /// E11c : stockage à page instable (SHY/SHX/AHX/TAS). H = octet haut de `base`
-    /// (adresse avant indexation) ; valeur écrite = reg & (H + 1) ; si franchissement,
-    /// l'octet haut d'addr est corrigé par la valeur écrite.
+    /// E11c : stockage a page instable (SHY/SHX/AHX/TAS). H = octet haut de `base`
+    /// (adresse avant indexation) ; valeur ecrite = reg & (H + 1) ; si franchissement,
+    /// l'octet haut d'addr est corrige par la valeur ecrite.
     fn unstable_store(&mut self, reg: u8) -> u8 {
         let v = reg & ((self.base >> 8) as u8).wrapping_add(1);
         if self.crossed {
@@ -504,7 +504,7 @@ impl super::Cpu {
         v
     }
 
-    /// Transformation lecture-modification-écriture (E05b : sonde INC ; E08b : ASL/LSR/ROL/ROR/DEC ; E11a : SLO/RLA/SRE/RRA/DCP/ISB).
+    /// Transformation lecture-modification-ecriture (E05b : sonde INC ; E08b : ASL/LSR/ROL/ROR/DEC ; E11a : SLO/RLA/SRE/RRA/DCP/ISB).
     pub(crate) fn exec_rmw(&mut self, op: Operation, data: u8) -> u8 {
         match op {
             Operation::Asl => self.asl(data),
@@ -522,34 +522,34 @@ impl super::Cpu {
                 v
             }
             Operation::Slo => {
-                // E11a : ASL M ; A |= M ; N, Z (C posé par l'ASL).
+                // E11a : ASL M ; A |= M ; N, Z (C pose par l'ASL).
                 let v = self.asl(data);
                 self.a |= v;
-                self.set_zn(self.a); // N, Z sur le résultat de l'ORA
+                self.set_zn(self.a); // N, Z sur le resultat de l'ORA
                 v
             }
             Operation::Rla => {
-                // E11a : ROL M ; A &= M ; N, Z (C posé par le ROL).
+                // E11a : ROL M ; A &= M ; N, Z (C pose par le ROL).
                 let v = self.rol(data);
                 self.a &= v;
-                self.set_zn(self.a); // N, Z sur le résultat de l'AND
+                self.set_zn(self.a); // N, Z sur le resultat de l'AND
                 v
             }
             Operation::Sre => {
-                // E11a : LSR M ; A ^= M ; N, Z (C posé par le LSR).
+                // E11a : LSR M ; A ^= M ; N, Z (C pose par le LSR).
                 let v = self.lsr(data);
                 self.a ^= v;
-                self.set_zn(self.a); // N, Z sur le résultat de l'EOR
+                self.set_zn(self.a); // N, Z sur le resultat de l'EOR
                 v
             }
             Operation::Rra => {
-                // E11a : ROR M ; ADC(M) — la retenue du ROR sert d'entrée à l'ADC.
+                // E11a : ROR M ; ADC(M) - la retenue du ROR sert d'entree a l'ADC.
                 let v = self.ror(data);
                 self.add_with_carry(v);
                 v
             }
             Operation::Dcp => {
-                // E11a : M -= 1 ; CMP(A, M) — les flags viennent du CMP, pas du décrément.
+                // E11a : M -= 1 ; CMP(A, M) - les flags viennent du CMP, pas du decrement.
                 let v = data.wrapping_sub(1);
                 self.compare(self.a, v);
                 v
@@ -564,10 +564,10 @@ impl super::Cpu {
         }
     }
 
-    // ---------- Arithmétique (E07a) ----------
+    // ---------- Arithmetique (E07a) ----------
 
     /// ADC/SBC : sum = A + m + C (16 bits). Pose C, V, N, Z ; A = octet bas de sum.
-    /// Réutilisée par RRA et ISB (E11).
+    /// Reutilisee par RRA et ISB (E11).
     pub(crate) fn add_with_carry(&mut self, m: u8) {
         let cin = if self.flag(FLAG_C) { 1 } else { 0 };
         let sum = u16::from(self.a)
@@ -589,10 +589,10 @@ impl super::Cpu {
     pub(crate) fn compare(&mut self, reg: u8, m: u8) {
         let r = reg.wrapping_sub(m);
         self.set_flag(FLAG_C, reg >= m);
-        self.set_zn(r); // N, Z (r == 0 ⇔ reg == M)
+        self.set_zn(r); // N, Z (r == 0 <=> reg == M)
     }
 
-    // ---------- Décalages/rotations (E08a) ----------
+    // ---------- Decalages/rotations (E08a) ----------
 
     /// ASL : C = bit 7 de v ; r = v << 1 ; N, Z sur r.
     pub(crate) fn asl(&mut self, v: u8) -> u8 {
@@ -644,7 +644,7 @@ impl super::Cpu {
         }
     }
 
-    /// Pose N et Z à partir d'un octet.
+    /// Pose N et Z a partir d'un octet.
     pub(crate) fn set_zn(&mut self, v: u8) {
         self.set_flag(FLAG_N, v & 0x80 != 0);
         self.set_flag(FLAG_Z, v == 0);
@@ -658,7 +658,7 @@ mod tests {
 
     #[test]
     fn sondes_disponibles() {
-        // Sondes E05a/E05b : LDA (lecture), STA (écriture), INC (RMW).
+        // Sondes E05a/E05b : LDA (lecture), STA (ecriture), INC (RMW).
         let _ = (Cpu::exec_read, Cpu::exec_write, Cpu::exec_rmw);
     }
 

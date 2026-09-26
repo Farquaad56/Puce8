@@ -1,9 +1,10 @@
 //! Bus CPU : RAM 2 Ko, miroirs, open bus, stubs PPU/APU (E03b).
 // wiki: Open_bus ; wiki: NES_memory_map
 
-use crate::cartridge::Cartridge;
+use crate::cartridge::{Cartridge, RomError};
 use crate::cpu::CpuBus;
 use crate::mapper::{create_mapper, Mapper, Mirroring};
+use crate::ppu::Ppu;
 
 /// Bus CPU vu par le 6502 : RAM + cartouche + open bus.
 pub struct Bus {
@@ -11,9 +12,11 @@ pub struct Bus {
     pub ram: [u8; 0x800],
     /// Cartouche : PRG-ROM, PRG-RAM, CHR... ($4020-$FFFF).
     pub mapper: Box<dyn Mapper>,
-    /// Dernier octet lu avec succès ou écrit (open bus).
+    /// PPU branchee sur $2000-$3FFF.
+    pub ppu: Ppu,
+    /// Dernier octet lu avec succes ou ecrit (open bus).
     pub open_bus: u8,
-    /// Compteur de cycles CPU (cadencé plus tard par Nes::tick).
+    /// Compteur de cycles CPU (cadence plus tard par Nes::tick).
     pub cpu_cycles: u64,
 }
 
@@ -22,12 +25,19 @@ impl Bus {
         Bus {
             ram: [0u8; 0x800],
             mapper,
+            ppu: Ppu::new(),
             open_bus: 0,
             cpu_cycles: 0,
         }
     }
 
-    /// Helper de test : NROM synthétique (mapper 0) dont la PRG-ROM est `prg`.
+    /// Construit un bus a partir d'une cartouche (E13b).
+    pub fn with_ppu(cart: Cartridge) -> Result<Self, RomError> {
+        let mapper = create_mapper(cart)?;
+        Ok(Bus::new(mapper))
+    }
+
+    /// Helper de test : NROM synthetique (mapper 0) dont la PRG-ROM est `prg`.
     pub fn for_test_with_prg(prg: &[u8]) -> Bus {
         let cart = Cartridge {
             mapper_id: 0,
@@ -40,7 +50,7 @@ impl Bus {
             has_battery: false,
             is_nes2: false,
         };
-        let mapper = create_mapper(cart).expect("mapper 0 (NROM) est toujours supporté");
+        let mapper = create_mapper(cart).expect("mapper 0 (NROM) est toujours supporte");
         Bus::new(mapper)
     }
 }
@@ -51,12 +61,17 @@ impl CpuBus for Bus {
             // $0000-$1FFF : RAM 2 Ko, miroir sur les 11 bits bas.
             0x0000..=0x1FFF => {
                 let value = self.ram[usize::from(addr & 0x07FF)];
-                self.open_bus = value; // l'open bus prend chaque octet lu avec succès
+                self.open_bus = value; // l'open bus prend chaque octet lu avec succes
                 value
             }
-            // $2000-$401F : rien de branché → open bus.
-            // E13: PPU ($2000-$2007) ; E30: APU ($4015-$4017).
-            0x2000..=0x401F => self.open_bus,
+            // $2000-$3FFF : PPU (miroir sur les 11 bits bas).
+            0x2000..=0x3FFF => {
+                let value = self.ppu.cpu_read_register(addr & 7, self.mapper.as_mut());
+                self.open_bus = value;
+                value
+            }
+            // $4000-$401F : APU (stubs).
+            0x4000..=0x401F => self.open_bus,
             // $4020-$FFFF : cartouche.
             _ => match self.mapper.cpu_read(addr) {
                 Some(value) => {
@@ -72,10 +87,16 @@ impl CpuBus for Bus {
         match addr {
             0x0000..=0x1FFF => {
                 self.ram[usize::from(addr & 0x07FF)] = value;
-                self.open_bus = value; // l'open bus prend chaque octet écrit
+                self.open_bus = value; // l'open bus prend chaque octet ecrit
             }
-            // E13: PPU ; E30: APU — écritures ignorées pour l'instant.
-            0x2000..=0x401F => {
+            // $2000-$3FFF : PPU (miroir sur les 11 bits bas).
+            0x2000..=0x3FFF => {
+                self.ppu
+                    .cpu_write_register(addr & 7, value, self.mapper.as_mut());
+                self.open_bus = value;
+            }
+            // $4000-$401F : APU (stubs).
+            0x4000..=0x401F => {
                 self.open_bus = value;
             }
             _ => {
@@ -86,17 +107,19 @@ impl CpuBus for Bus {
     }
 
     fn peek(&self, addr: u16) -> u8 {
-        // Même décodage que `read`, sans toucher l'open bus.
+        // Meme decodage que `read`, sans toucher l'open bus.
         match addr {
             0x0000..=0x1FFF => self.ram[usize::from(addr & 0x07FF)],
-            // E13: PPU ; E30: APU — stubs, aucune valeur branchée.
-            0x2000..=0x401F => self.open_bus,
+            // $2000-$3FFF : PPU (miroir sur les 11 bits bas).
+            0x2000..=0x3FFF => self.ppu.cpu_peek_register(addr & 7),
+            // $4000-$401F : APU (stubs).
+            0x4000..=0x401F => self.open_bus,
             _ => self.mapper.cpu_peek(addr).unwrap_or(self.open_bus),
         }
     }
 
     fn nmi_line(&self) -> bool {
-        false // E13: la PPU pilotera le NMI.
+        self.ppu.nmi_line()
     }
 
     fn irq_line(&self) -> bool {
@@ -133,15 +156,15 @@ mod tests {
     #[test]
     fn open_bus_stub_io() {
         let mut bus = Bus::for_test_with_prg(&[0x33]);
-        assert_eq!(bus.read(0x8000), 0x33); // PRG[0] → open bus
-        assert_eq!(bus.read(0x4018), 0x33); // stub IO → open bus
+        assert_eq!(bus.read(0x8000), 0x33); // PRG[0] -> open bus
+        assert_eq!(bus.read(0x4018), 0x33); // stub IO -> open bus
     }
 
     #[test]
     fn open_bus_apres_ecriture() {
         let mut bus = Bus::for_test_with_prg(&[0xA9]);
         bus.write(0x0000, 0x77);
-        assert_eq!(bus.read(0x5000), 0x77); // rien de branché → open bus
+        assert_eq!(bus.read(0x5000), 0x77); // rien de branche -> open bus
     }
 
     #[test]

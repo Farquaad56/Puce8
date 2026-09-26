@@ -1,15 +1,15 @@
-//! Bus CPU : contrat vu par le processeur (E03) + séquenceur cycle-exact `Cpu` (E04).
+//! Bus CPU : contrat vu par le processeur (E03) + sequenceur cycle-exact `Cpu` (E04).
 
 /// Contrat du bus vu par le 6502. Le bus ne fait pas avancer le temps :
-/// un accès = un cycle, mais c'est `Cpu::tick()` (E04), puis `Nes::tick()`, qui cadence tout.
+/// un acces = un cycle, mais c'est `Cpu::tick()` (E04), puis `Nes::tick()`, qui cadence tout.
 pub trait CpuBus {
     /// Lecture avec effets de bord (open bus, $2007, ...).
     fn read(&mut self, addr: u16) -> u8;
-    /// Écriture avec effets de bord.
+    /// Ecriture avec effets de bord.
     fn write(&mut self, addr: u16, value: u8);
-    /// Lecture sans aucun effet : même valeur que `read`, ni journal ni callback.
+    /// Lecture sans aucun effet : meme valeur que `read`, ni journal ni callback.
     fn peek(&self, addr: u16) -> u8;
-    /// true = NMI demandée.
+    /// true = NMI demandee.
     fn nmi_line(&self) -> bool;
     /// true = IRQ active (sensible au niveau).
     fn irq_line(&self) -> bool;
@@ -33,7 +33,7 @@ use micro_op::{Flow, MicroOp};
 use operations::Operation;
 use ported_steps::{ported_steps, INTERRUPT_SEQ, RESET_SEQ};
 
-/// Processeur 6502 : séquenceur cycle-exact (1 tick = 1 cycle = 1 accès bus).
+/// Processeur 6502 : sequenceur cycle-exact (1 tick = 1 cycle = 1 acces bus).
 pub struct Cpu {
     pub a: u8,
     pub x: u8,
@@ -41,9 +41,9 @@ pub struct Cpu {
     pub s: u8,
     pub pc: u16,
     pub p: u8,
-    /// Nombre total de cycles exécutés (la séquence de reset compte).
+    /// Nombre total de cycles executes (la sequence de reset compte).
     pub cycles: u64,
-    /// JAM : le CPU lit $FFFF à chaque cycle, pour toujours.
+    /// JAM : le CPU lit $FFFF a chaque cycle, pour toujours.
     pub jammed: bool,
 
     steps: &'static [MicroOp],
@@ -72,8 +72,8 @@ impl Default for Cpu {
 }
 
 impl Cpu {
-    /// Reset à froid : A = X = Y = 0, S = 0, P = $24 (U et I posés).
-    /// Les 7 premiers ticks exécutent la séquence de reset.
+    /// Reset a froid : A = X = Y = 0, S = 0, P = $24 (U et I poses).
+    /// Les 7 premiers ticks executent la sequence de reset.
     pub fn new() -> Self {
         Cpu {
             a: 0,
@@ -102,7 +102,7 @@ impl Cpu {
         }
     }
 
-    /// Reset à chaud : A, X, Y sont conservés ; I est posé.
+    /// Reset a chaud : A, X, Y sont conserves ; I est pose.
     pub fn reset(&mut self) {
         self.steps = RESET_SEQ;
         self.idx = 0;
@@ -110,7 +110,7 @@ impl Cpu {
         self.set_flag(exec::FLAG_I, true);
     }
 
-    /// Exécute un cycle (exactement un accès bus).
+    /// Execute un cycle (exactement un acces bus).
     pub fn tick(&mut self, bus: &mut impl CpuBus) {
         if self.jammed {
             let _ = bus.read(0xFFFF);
@@ -118,7 +118,7 @@ impl Cpu {
             return;
         }
         if self.idx >= self.steps.len() {
-            // Frontière d'instruction.
+            // Frontiere d'instruction.
             if self.prev_need_nmi || self.prev_run_irq {
                 self.begin_interrupt(bus);
             } else {
@@ -139,15 +139,15 @@ impl Cpu {
         self.sample_interrupts(bus);
     }
 
-    /// Vrai à une frontière d'instruction (le tick suivant lit l'opcode ou gère une interruption).
+    /// Vrai a une frontiere d'instruction (le tick suivant lit l'opcode ou gere une interruption).
     pub fn at_instruction_boundary(&self) -> bool {
         self.idx >= self.steps.len()
     }
 
-    /// Exécute une instruction complète (lecture d'opcode comprise) jusqu'à la
-    /// frontière suivante ; renvoie le nombre de ticks.
+    /// Execute une instruction complete (lecture d'opcode comprise) jusqu'a la
+    /// frontiere suivante ; renvoie le nombre de ticks.
     pub fn step_instruction(&mut self, bus: &mut impl CpuBus) -> u32 {
-        // Au moins un tick : à la frontière, le premier tick lit l'opcode.
+        // Au moins un tick : a la frontiere, le premier tick lit l'opcode.
         let mut n = 0u32;
         loop {
             self.tick(bus);
@@ -158,7 +158,7 @@ impl Cpu {
         }
     }
 
-    /// Vrai si le prochain accès bus est une lecture (la DMA peut préempter).
+    /// Vrai si le prochain acces bus est une lecture (la DMA peut preempter).
     pub fn next_access_is_read(&self) -> bool {
         if self.at_instruction_boundary() {
             true // Lecture d'opcode (ou d'interruption, ou JAM).
@@ -167,15 +167,15 @@ impl Cpu {
         }
     }
 
-    /// Début de séquence NMI/IRQ (E12a) : 1er cycle = R*(PC), à la place de la lecture
-    /// de l'opcode ; PC n'est pas incrémenté.
+    /// Debut de sequence NMI/IRQ (E12a) : 1er cycle = R*(PC), a la place de la lecture
+    /// de l'opcode ; PC n'est pas incremente.
     fn begin_interrupt(&mut self, bus: &mut impl CpuBus) {
-        let _ = bus.read(self.pc); // lecture factice R*(PC), PC non incrémenté
+        let _ = bus.read(self.pc); // lecture factice R*(PC), PC non incremente
         self.steps = INTERRUPT_SEQ;
         self.idx = 0;
     }
 
-    /// Échantillonne les lignes NMI/IRQ en fin de cycle (E12a).
+    /// Echantillonne les lignes NMI/IRQ en fin de cycle (E12a).
     fn sample_interrupts(&mut self, bus: &impl CpuBus) {
         self.prev_need_nmi = self.need_nmi;
         let nmi = bus.nmi_line();
@@ -184,7 +184,7 @@ impl Cpu {
         }
         self.prev_nmi_line = nmi;
         self.prev_run_irq = self.run_irq;
-        self.run_irq = bus.irq_line() && ((self.p & exec::FLAG_I) == 0); // niveau, masqué par I
+        self.run_irq = bus.irq_line() && ((self.p & exec::FLAG_I) == 0); // niveau, masque par I
     }
 }
 
@@ -220,7 +220,7 @@ mod tests {
         assert_eq!(INTERRUPT_SEQ.len(), 6);
     }
 
-    /// Exécute la séquence de reset (vecteur $FFFC → `target`).
+    /// Execute la sequence de reset (vecteur $FFFC -> `target`).
     fn run_reset(cpu: &mut Cpu, bus: &mut TestBus) {
         for _ in 0..7 {
             cpu.tick(bus);
@@ -235,12 +235,12 @@ mod tests {
         let mut cpu = Cpu::new();
         run_reset(&mut cpu, &mut bus);
         assert_eq!(cpu.cycles, 7);
-        // 7 ticks → 7 accès, tous des lectures.
+        // 7 ticks -> 7 acces, tous des lectures.
         assert_eq!(bus.log.len(), 7);
         for a in &bus.log {
             assert!(
                 matches!(a, Access::Read(_, _)),
-                "écriture pendant le reset : {a:?}"
+                "ecriture pendant le reset : {a:?}"
             );
         }
         assert_eq!(
@@ -267,7 +267,7 @@ mod tests {
         for _ in 0..7 {
             cpu.tick(&mut bus);
         }
-        assert_eq!(cpu.a, 5); // A conservé
+        assert_eq!(cpu.a, 5); // A conserve
         assert_eq!(cpu.s, 0xFA);
         assert_ne!(cpu.p & exec::FLAG_I, 0); // I = 1
     }
@@ -316,8 +316,8 @@ mod tests {
         for _ in 0..5 {
             cpu.tick(&mut bus);
         }
-        assert_eq!(&bus.log[2..], &[Access::Read(0xFFFF, 0); 5]); // 1 accès par tick
-        assert_eq!(cpu.pc, pc); // PC figé
+        assert_eq!(&bus.log[2..], &[Access::Read(0xFFFF, 0); 5]); // 1 acces par tick
+        assert_eq!(cpu.pc, pc); // PC fige
     }
 
     #[test]
@@ -328,7 +328,7 @@ mod tests {
         assert!(cpu.flag(exec::FLAG_I) && cpu.flag(exec::FLAG_U));
         assert!(!cpu.jammed);
         assert_eq!(cpu.cycles, 0);
-        // Champs réservés aux étapes suivantes (E05/E12).
+        // Champs reserves aux etapes suivantes (E05/E12).
         assert_eq!((cpu.base, cpu.ptr, cpu.data), (0, 0, 0));
         assert!(!cpu.crossed);
         assert_eq!(cpu.vector, 0xFFFC);

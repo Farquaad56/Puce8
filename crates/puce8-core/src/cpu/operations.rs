@@ -1,7 +1,7 @@
-// FICHIER GÉNÉRÉ — ne pas modifier à la main.
-// Source : Docs_Implementation/annexes/code/ (vérifié contre nestest.log).
+// FICHIER GENERE - ne pas modifier a la main.
+// Source : Docs_Implementation/annexes/code/ (verifie contre nestest.log).
 
-/// Une opération = le « quoi » d'une instruction (l'adressage est dans ported_steps).
+/// Une operation = le "quoi" d'une instruction (l'adressage est dans ported_steps).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Operation {
     Adc,
@@ -82,7 +82,7 @@ pub enum Operation {
     Xaa,
 }
 
-/// Classe d'accès mémoire (annexe D3).
+/// Classe d'acces memoire (annexe D3).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Class {
     Read,

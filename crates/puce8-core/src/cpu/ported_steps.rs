@@ -1,6 +1,6 @@
-// FICHIER GÉNÉRÉ — ne pas modifier à la main.
-// Séquences cycle par cycle portées de la référence 6502 (annexe D3/D4).
-// Le cycle 1 (lecture de l'opcode) n'est PAS dans les séquences : Cpu::tick le fait.
+// FICHIER GENERE - ne pas modifier a la main.
+// Sequences cycle par cycle portees de la reference 6502 (annexe D3/D4).
+// Le cycle 1 (lecture de l'opcode) n'est PAS dans les sequences : Cpu::tick le fait.
 
 use super::micro_op::MicroOp::{self, *};
 use super::opcodes::{Mode, OPCODES};
@@ -76,7 +76,7 @@ const IZY_M: &[MicroOp] = &[
     RmwDummyWrite,
     RmwWrite,
 ];
-// ---------- Spéciales (annexe D4) ----------
+// ---------- Speciales (annexe D4) ----------
 const BRANCH: &[MicroOp] = &[BranchFetch, BranchTaken, BranchFixPage];
 const JMP_ABS: &[MicroOp] = &[FetchAbsLo, JmpAbsHi];
 const JMP_IND: &[MicroOp] = &[FetchAbsLo, FetchAbsHi, ReadIndirectLo, JmpIndirectHi];
@@ -97,7 +97,7 @@ const BRK: &[MicroOp] = &[
 ];
 const JAM: &[MicroOp] = &[Jam];
 
-/// Séquence de reset (7 cycles, TOUS dans la liste ; vector = $FFFC).
+/// Sequence de reset (7 cycles, TOUS dans la liste ; vector = $FFFC).
 pub const RESET_SEQ: &[MicroOp] = &[
     DummyReadPc,
     DummyReadPc,
@@ -107,7 +107,7 @@ pub const RESET_SEQ: &[MicroOp] = &[
     ReadVectorLo,
     ReadVectorHi,
 ];
-/// Séquence d'interruption NMI/IRQ : 6 micro-ops. Le 1er cycle (R*(PC) à la place de la lecture
+/// Sequence d'interruption NMI/IRQ : 6 micro-ops. Le 1er cycle (R*(PC) a la place de la lecture
 /// de l'opcode) est fait par Cpu::begin_interrupt. Total : 7 cycles.
 pub const INTERRUPT_SEQ: &[MicroOp] = &[
     DummyReadPc,
@@ -118,7 +118,7 @@ pub const INTERRUPT_SEQ: &[MicroOp] = &[
     ReadVectorHi,
 ];
 
-/// Séquence de micro-ops d'un opcode (sans le cycle de lecture de l'opcode).
+/// Sequence de micro-ops d'un opcode (sans le cycle de lecture de l'opcode).
 pub fn ported_steps(opcode: u8) -> &'static [MicroOp] {
     let mode = OPCODES[opcode as usize].mode;
     match class(opcode) {

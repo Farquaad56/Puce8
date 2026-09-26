@@ -1,5 +1,5 @@
-// FICHIER GÉNÉRÉ — ne pas modifier à la main.
-// Source : Docs_Implementation/annexes/code/ (vérifié contre nestest.log).
+// FICHIER GENERE - ne pas modifier a la main.
+// Source : Docs_Implementation/annexes/code/ (verifie contre nestest.log).
 
 /// Mode d'adressage (annexe A).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -20,7 +20,7 @@ pub enum Mode {
 }
 
 impl Mode {
-    /// Nombre d'octets d'opérande après l'opcode.
+    /// Nombre d'octets d'operande apres l'opcode.
     pub const fn operand_len(self) -> u8 {
         match self {
             Mode::Imp | Mode::Acc => 0,
@@ -30,7 +30,7 @@ impl Mode {
     }
 }
 
-/// Informations de désassemblage / vérification. N'intervient JAMAIS dans le séquencement.
+/// Informations de desassemblage / verification. N'intervient JAMAIS dans le sequencement.
 #[derive(Clone, Copy, Debug)]
 pub struct OpInfo {
     pub mnemonic: &'static str,

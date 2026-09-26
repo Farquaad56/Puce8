@@ -1,13 +1,13 @@
-//! Traceur au format nestest (E10a) : capture de l'état AVANT instruction + comparaison.
+//! Traceur au format nestest (E10a) : capture de l'etat AVANT instruction + comparaison.
 
 use super::opcodes::{Mode, OPCODES};
 use super::{Cpu, CpuBus};
 
-/// État capturé avant l'instruction située à `cpu.pc` (lu avec `peek`, sans effet).
+/// Etat capture avant l'instruction situee a `cpu.pc` (lu avec `peek`, sans effet).
 #[derive(Clone, Copy, Debug)]
 pub struct TraceState {
     pub pc: u16,
-    /// Octets de l'instruction à PC (3 au maximum ; slots inutilisés = 0).
+    /// Octets de l'instruction a PC (3 au maximum ; slots inutilises = 0).
     pub bytes: [u8; 3],
     /// Longueur de l'instruction en octets.
     pub len: u8,
@@ -17,13 +17,13 @@ pub struct TraceState {
     pub p: u8,
     pub s: u8,
     pub cycles: u64,
-    /// PPU (ligne de frame, point du cycle) — rempli en E13.
+    /// PPU (ligne de frame, point du cycle) - rempli en E13.
     pub ppu: Option<(u16, u16)>,
 }
 
-/// Capture l'état avant l'instruction à `cpu.pc`.
+/// Capture l'etat avant l'instruction a `cpu.pc`.
 pub fn capture(cpu: &Cpu, bus: &impl CpuBus) -> TraceState {
-    // À la frontière d'instruction, l'opcode suivant n'est pas encore lu dans `cpu.opcode` : on le lit dans le bus.
+    // A la frontiere d'instruction, l'opcode suivant n'est pas encore lu dans `cpu.opcode` : on le lit dans le bus.
     let op = bus.peek(cpu.pc);
     let len = 1 + OPCODES[op as usize].mode.operand_len();
     let mut bytes = [0u8; 3];
@@ -47,7 +47,16 @@ pub fn capture(cpu: &Cpu, bus: &impl CpuBus) -> TraceState {
     }
 }
 
-/// Formate l'état en ligne nestest (colonnes fixes ; le désassemblage n'est JAMAIS comparé).
+/// Capture l'etat avant l'instruction a `cpu.pc`, avec la position PPU (E13b).
+pub fn capture_nes(nes: &crate::nes::Nes) -> TraceState {
+    let t = capture(&nes.cpu, &nes.bus);
+    TraceState {
+        ppu: Some(nes.bus.ppu.position()),
+        ..t
+    }
+}
+
+/// Formate l'etat en ligne nestest (colonnes fixes ; le desassemblage n'est JAMAIS compare).
 pub fn format_nestest(t: &TraceState) -> String {
     let mut s = format!("{:04X}  ", t.pc);
     // Champ octets, largeur 8 (colonnes 6-13).
@@ -60,7 +69,7 @@ pub fn format_nestest(t: &TraceState) -> String {
         push_hex2(&mut bf, t.bytes[i]);
     }
     s.push_str(&format!("{:<8}  ", bf));
-    // Champ désassemblage, largeur 32 (colonnes 16-47).
+    // Champ desassemblage, largeur 32 (colonnes 16-47).
     let info = OPCODES[t.bytes[0] as usize];
     let mut d = String::new();
     if !info.official {
@@ -85,8 +94,8 @@ pub fn format_nestest(t: &TraceState) -> String {
     s
 }
 
-/// Compare l'état capturé à une ligne de référence nestest.
-/// La ligne est parsée par recherche des étiquettes (`"A:"`, `"CYC:"`…), pas en position fixe au-delà de la colonne 16.
+/// Compare l'etat capture a une ligne de reference nestest.
+/// La ligne est parsee par recherche des etiquettes (`"A:"`, `"CYC:"`...), pas en position fixe au-dela de la colonne 16.
 pub fn compare_with_reference(
     reference_line: &str,
     t: &TraceState,
@@ -94,7 +103,7 @@ pub fn compare_with_reference(
 ) -> Result<(), String> {
     // PC : colonnes 0-3.
     let pc_ref = u16::from_str_radix(&reference_line[0..4], 16)
-        .map_err(|_| "mauvaise ligne de référence (PC)".to_string())?;
+        .map_err(|_| "mauvaise ligne de reference (PC)".to_string())?;
     if pc_ref != t.pc {
         return Err(format!(
             "champ PC : attendu {:04X}, obtenu {:04X}",
@@ -109,7 +118,7 @@ pub fn compare_with_reference(
         }
         match u8::from_str_radix(tok, 16) {
             Ok(b) => ref_bytes.push(b),
-            Err(_) => return Err(format!("mauvaise ligne de référence (octets) : {:?}", tok)),
+            Err(_) => return Err(format!("mauvaise ligne de reference (octets) : {:?}", tok)),
         }
     }
     let n = t.len.min(3) as usize;
@@ -128,10 +137,10 @@ pub fn compare_with_reference(
             n
         ));
     }
-    // Registres : recherche des étiquettes.
+    // Registres : recherche des etiquettes.
     for (label, got) in [("A", t.a), ("X", t.x), ("Y", t.y), ("P", t.p), ("SP", t.s)] {
         let exp = parse_reg(reference_line, label)
-            .ok_or_else(|| format!("mauvaise ligne de référence : étiquette {} absente", label))?;
+            .ok_or_else(|| format!("mauvaise ligne de reference : etiquette {} absente", label))?;
         if exp != got {
             return Err(format!(
                 "champ {} : attendu {:02X}, obtenu {:02X}",
@@ -141,7 +150,7 @@ pub fn compare_with_reference(
     }
     // CYC.
     let cyc_ref = parse_dec(reference_line, "CYC")
-        .ok_or_else(|| "mauvaise ligne de référence : étiquette CYC absente".to_string())?;
+        .ok_or_else(|| "mauvaise ligne de reference : etiquette CYC absente".to_string())?;
     if cyc_ref != t.cycles {
         return Err(format!(
             "champ CYC : attendu {}, obtenu {}",
@@ -151,7 +160,7 @@ pub fn compare_with_reference(
     // PPU (facultatif).
     if check_ppu {
         let ppu_ref = parse_ppu(reference_line)
-            .ok_or_else(|| "mauvaise ligne de référence : étiquette PPU absente".to_string())?;
+            .ok_or_else(|| "mauvaise ligne de reference : etiquette PPU absente".to_string())?;
         match t.ppu {
             Some(got) if got == ppu_ref => {}
             _ => {
@@ -231,14 +240,14 @@ fn push_operand(d: &mut String, mode: &Mode, t: &TraceState) {
     }
 }
 
-/// Valeur hexadécimale (2 chiffres) juste après l'étiquette `" <label>:"`.
+/// Valeur hexadecimale (2 chiffres) juste apres l'etiquette `" <label>:"`.
 fn parse_reg(line: &str, label: &str) -> Option<u8> {
     let i = line.find(format!(" {}:", label).as_str())?;
     let start = i + 1 + label.len() + 1;
     u8::from_str_radix(&line[start..start + 2], 16).ok()
 }
 
-/// Valeur décimale juste après l'étiquette `" <label>:"`.
+/// Valeur decimale juste apres l'etiquette `" <label>:"`.
 fn parse_dec(line: &str, label: &str) -> Option<u64> {
     let i = line.find(format!(" {}:", label).as_str())?;
     let v = &line[i + 1 + label.len() + 1..];
@@ -276,7 +285,7 @@ mod tests {
     use super::*;
     use crate::cpu::test_bus::TestBus;
 
-    /// État de la ligne 1 du nestest.log.
+    /// Etat de la ligne 1 du nestest.log.
     fn line1_state() -> TraceState {
         TraceState {
             pc: 0xC000,
@@ -300,7 +309,7 @@ mod tests {
         assert!(s.starts_with("C000  4C F5 C5"));
         assert!(s.contains("P:24 SP:FD"));
         assert!(s.contains("CYC:7"));
-        // Alignement exact sur la ligne réelle du nestest.log.
+        // Alignement exact sur la ligne reelle du nestest.log.
         assert_eq!(s, LIGNE1);
     }
 
