@@ -23,7 +23,9 @@ pub struct TraceState {
 
 /// Capture l'état avant l'instruction à `cpu.pc`.
 pub fn capture(cpu: &Cpu, bus: &impl CpuBus) -> TraceState {
-    let len = 1 + OPCODES[cpu.opcode as usize].mode.operand_len();
+    // À la frontière d'instruction, l'opcode suivant n'est pas encore lu dans `cpu.opcode` : on le lit dans le bus.
+    let op = bus.peek(cpu.pc);
+    let len = 1 + OPCODES[op as usize].mode.operand_len();
     let mut bytes = [0u8; 3];
     for (i, slot) in bytes.iter_mut().enumerate() {
         if i >= len.min(3) as usize {
