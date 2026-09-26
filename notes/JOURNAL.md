@@ -7,3 +7,4 @@
 - E01 : NES 2.0 : `64 << n` avec n = 0 → taille 0 (wiki) ; PRG-RAM = max(volatile, NVRAM) si octet 10 ≠ 0, sinon 8 Ko ; CHR-RAM min 8 Ko si CHR-ROM = 0.
 - E02b (2026-09-26) : NROM + `create_mapper` déjà écrits et commités avec E02a ; renommé le test `create_mapper_nestest` → `vrai_nestest` pour coller au tableau T1. `cargo test -p puce8-core mapper::` 14/14 OK (dont vrai_nestest sur nestest.nes réel), verifier vert.
 - E03b (2026-09-26) : `Bus` (RAM 2 Ko miroir, stubs $2000-$401F, open bus = dernier octet lu avec succès ou écrit, `peek` sans effet). `for_test_with_prg` construit un NROM synthétique via `Cartridge` direct + `create_mapper`. `cargo test -p puce8-core bus::` 9/9 OK (6 tests T1), verifier vert.
+- E04b (2026-09-26) : la session précédente avait écrit `Cpu` + `exec.rs` sans les committer ; vérifié conforme à la spec, commité ici. `cargo test -p puce8-core cpu::` 12/12 OK (5 tests T1), verifier vert (47 tests workspace).
