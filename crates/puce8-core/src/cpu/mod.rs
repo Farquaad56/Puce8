@@ -15,5 +15,41 @@ pub trait CpuBus {
     fn irq_line(&self) -> bool;
 }
 
+pub mod micro_op;
+pub mod opcodes;
+pub mod operations;
+pub mod ported_steps;
+
 #[cfg(test)]
 pub(crate) mod test_bus;
+
+#[cfg(test)]
+mod tests {
+    use super::{micro_op::MicroOp, opcodes::*, ported_steps::*};
+
+    #[test]
+    fn tables_generees_coherentes() {
+        let (mut off, mut jam) = (0, 0);
+        for op in 0..=255u8 {
+            let info = OPCODES[op as usize];
+            if info.official {
+                off += 1;
+            }
+            let s = ported_steps(op);
+            if info.mnemonic == "JAM" {
+                jam += 1;
+                continue;
+            }
+            let early = s.contains(&MicroOp::ReadIndexedPageCheck) as usize;
+            let base = if info.mode == Mode::Rel {
+                s.len() - 1
+            } else {
+                1 + s.len() - early
+            };
+            assert_eq!(base as u8, info.cycles, "opcode {:02X}", op);
+        }
+        assert_eq!((off, jam), (151, 12));
+        assert_eq!(RESET_SEQ.len(), 7);
+        assert_eq!(INTERRUPT_SEQ.len(), 6);
+    }
+}
