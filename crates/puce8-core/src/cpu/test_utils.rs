@@ -253,4 +253,63 @@ mod t1 {
             0x91, 0xE6, 0xF6, 0xEE, 0xFE,
         ]);
     }
+
+    // --- E06a : chargements, stockages, transferts ---
+
+    #[test]
+    fn lda_zero() {
+        let (cpu, _) = run(&[0xA9, 0x00], |_, _| {});
+        assert!(cpu.flag(FLAG_Z));
+        assert!(!cpu.flag(FLAG_N));
+    }
+
+    #[test]
+    fn ldx_zpy() {
+        let (cpu, bus) = run(&[0xB6, 0x10], |cpu, bus| {
+            cpu.y = 5;
+            bus.load(0x15, &[7]);
+        });
+        assert_eq!(bus.log.len(), 4); // opcode + FetchZp + DummyReadZpAddY + ReadExec
+        assert_eq!(cpu.x, 7);
+    }
+
+    #[test]
+    fn sty_zpx() {
+        let (_, bus) = run(&[0x94, 0x10], |cpu, _| {
+            cpu.x = 1;
+            cpu.y = 3;
+        });
+        assert_eq!(bus.log.last(), Some(&Access::Write(0x0011, 3)));
+    }
+
+    #[test]
+    fn tsx_flags() {
+        let (cpu, _) = run(&[0xBA], |cpu, _| cpu.s = 0x80);
+        assert_eq!(cpu.x, 0x80);
+        assert!(cpu.flag(FLAG_N));
+    }
+
+    #[test]
+    fn txs_sans_flags() {
+        let (cpu, _) = run(&[0x9A], |cpu, _| {
+            cpu.x = 0;
+            cpu.set_zn(0x85); // N = 1, Z = 0 : Txs ne doit rien toucher
+        });
+        assert_eq!(cpu.s, 0);
+        assert!(cpu.flag(FLAG_N));
+        assert!(!cpu.flag(FLAG_Z));
+    }
+
+    #[test]
+    fn invariants_e06() {
+        verifier_invariants(&[
+            0xA9, 0xA5, 0xB5, 0xAD, 0xBD, 0xB9, 0xA1, 0xB1, // LDA
+            0xA2, 0xA6, 0xB6, 0xAE, 0xBE, // LDX
+            0xA0, 0xA4, 0xB4, 0xAC, 0xBC, // LDY
+            0x85, 0x95, 0x8D, 0x9D, 0x99, 0x81, 0x91, // STA
+            0x86, 0x96, 0x8E, // STX
+            0x84, 0x94, 0x8C, // STY
+            0xAA, 0xA8, 0x8A, 0x98, 0xBA, 0x9A, // transferts
+        ]);
+    }
 }

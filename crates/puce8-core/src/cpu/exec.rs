@@ -1,4 +1,4 @@
-//! Exécution des micro-ops et des opérations (E04b : reset, NOP, JAM ; E05a : adressage en lecture + LDA ; E05b : écriture/RMW + sondes STA/INC).
+//! Exécution des micro-ops et des opérations (E04b : reset, NOP, JAM ; E05a : adressage en lecture + LDA ; E05b : écriture/RMW + sondes STA/INC ; E06a : load/store/transferts).
 
 use super::micro_op::{Flow, MicroOp};
 use super::operations::Operation;
@@ -171,29 +171,60 @@ impl super::Cpu {
         Flow::Next
     }
 
-    /// « Quoi » d'une instruction implicite (E04b : NOP seulement).
+    /// « Quoi » d'une instruction implicite (E04b : NOP ; E06a : transferts).
     pub(crate) fn exec_implied(&mut self, op: Operation) {
         match op {
             Operation::Nop => {}
+            Operation::Tax => {
+                self.x = self.a;
+                self.set_zn(self.x); // N, Z
+            }
+            Operation::Tay => {
+                self.y = self.a;
+                self.set_zn(self.y); // N, Z
+            }
+            Operation::Txa => {
+                self.a = self.x;
+                self.set_zn(self.a); // N, Z
+            }
+            Operation::Tya => {
+                self.a = self.y;
+                self.set_zn(self.a); // N, Z
+            }
+            Operation::Tsx => {
+                self.x = self.s;
+                self.set_zn(self.x); // N, Z
+            }
+            Operation::Txs => self.s = self.x, // aucun flag
             other => unimplemented!("{:?}", other),
         }
     }
 
-    /// « Quoi » d'une lecture (E05a : sonde LDA).
+    /// « Quoi » d'une lecture (E05a : LDA ; E06a : LDX/LDY).
     pub(crate) fn exec_read(&mut self, op: Operation, value: u8) {
         match op {
             Operation::Lda => {
                 self.a = value;
-                self.set_zn(value);
+                self.set_zn(value); // N, Z
+            }
+            Operation::Ldx => {
+                self.x = value;
+                self.set_zn(value); // N, Z
+            }
+            Operation::Ldy => {
+                self.y = value;
+                self.set_zn(value); // N, Z
             }
             other => unimplemented!("{:?}", other),
         }
     }
 
-    /// Valeur écrite par l'instruction (E05b : sonde STA).
+    /// Valeur écrite par l'instruction (E05b : STA ; E06a : STX/STY).
     pub(crate) fn exec_write(&mut self, op: Operation) -> u8 {
         match op {
-            Operation::Sta => self.a,
+            Operation::Sta => self.a, // aucun flag
+            Operation::Stx => self.x, // aucun flag
+            Operation::Sty => self.y, // aucun flag
             other => unimplemented!("{:?}", other),
         }
     }
