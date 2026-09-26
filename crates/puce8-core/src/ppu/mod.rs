@@ -8,6 +8,7 @@
 pub mod background;
 pub mod palette;
 pub mod registers;
+mod render;
 
 use crate::mapper::{Mapper, Mirroring};
 use registers::Registers;
@@ -46,6 +47,10 @@ pub struct Ppu {
     pub pat_lo_latch: u8,
     /// Latch du motif haut charge en phase 7 (E18b).
     pub pat_hi_latch: u8,
+    /// Registres a decalage du fond (E18c2/E18c3).
+    pub bg: background::BgShifters,
+    /// Image 256 x 240 : index palette (bits 0-5) + emphase (bits 6-8) (E18c3).
+    pub framebuffer: Vec<u16>,
 }
 
 impl Default for Ppu {
@@ -74,6 +79,8 @@ impl Ppu {
             at_latch: 0,
             pat_lo_latch: 0,
             pat_hi_latch: 0,
+            bg: background::BgShifters::default(),
+            framebuffer: vec![0; 256 * 240],
         }
     }
 
@@ -106,6 +113,7 @@ impl Ppu {
             }
             _ => {}
         }
+        self.render_dot(); // E18c3 : decalage/rechargement puis pixel
         self.bg_fetch(mapper); // E18b : fetchs de fond du point courant (si rendu actif)
     }
 
