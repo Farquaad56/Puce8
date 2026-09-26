@@ -1,4 +1,4 @@
-//! Exécution des micro-ops et des opérations (E04b : reset, NOP, JAM ; E05a : adressage en lecture + LDA ; E05b : écriture/RMW + sondes STA/INC ; E06a : load/store/transferts ; E07a : ADC/SBC/AND/ORA/EOR ; E07b : CMP/CPX/CPY, BIT, INX/INY/DEX/DEY ; E08a : ASL/LSR/ROL/ROR A ; E08b : RMW mémoire + DEC ; E09a : branchements et JMP).
+//! Exécution des micro-ops et des opérations (E04b : reset, NOP, JAM ; E05a : adressage en lecture + LDA ; E05b : écriture/RMW + sondes STA/INC ; E06a : load/store/transferts ; E07a : ADC/SBC/AND/ORA/EOR ; E07b : CMP/CPX/CPY, BIT, INX/INY/DEX/DEY ; E08a : ASL/LSR/ROL/ROR A ; E08b : RMW mémoire + DEC ; E09a : branchements et JMP ; E09b : JSR/RTS/pile/instructions de flags).
 
 use super::micro_op::{Flow, MicroOp};
 use super::operations::Operation;
@@ -196,6 +196,66 @@ impl super::Cpu {
                 self.pc = (u16::from(hi) << 8) | u16::from(self.data);
                 Flow::Done
             }
+            // --- E09b : pile et JSR/RTS (1 accès bus par micro-op) ---
+            MicroOp::DummyReadStack => {
+                let _ = bus.read(0x0100 + u16::from(self.s));
+                Flow::Next
+            }
+            MicroOp::PushPch => {
+                bus.write(0x0100 + u16::from(self.s), (self.pc >> 8) as u8);
+                self.s = self.s.wrapping_sub(1);
+                Flow::Next
+            }
+            MicroOp::PushPcl => {
+                bus.write(0x0100 + u16::from(self.s), self.pc as u8);
+                self.s = self.s.wrapping_sub(1);
+                Flow::Next
+            }
+            MicroOp::PushA => {
+                bus.write(0x0100 + u16::from(self.s), self.a);
+                self.s = self.s.wrapping_sub(1);
+                Flow::Done
+            }
+            MicroOp::PushPPhp => {
+                // B forcé à 1 dans l'octet empilé (bit 5).
+                bus.write(0x0100 + u16::from(self.s), self.p | 0x30);
+                self.s = self.s.wrapping_sub(1);
+                Flow::Done
+            }
+            MicroOp::PullA => {
+                self.s = self.s.wrapping_add(1);
+                let v = bus.read(0x0100 + u16::from(self.s));
+                self.a = v;
+                self.set_zn(v); // N, Z
+                Flow::Done
+            }
+            MicroOp::PullPPlp => {
+                self.s = self.s.wrapping_add(1);
+                let v = bus.read(0x0100 + u16::from(self.s));
+                self.p = (v & 0xCF) | 0x20; // B ignoré, U toujours posé
+                Flow::Done
+            }
+            MicroOp::PullPcl => {
+                self.s = self.s.wrapping_add(1);
+                self.addr = u16::from(bus.read(0x0100 + u16::from(self.s)));
+                Flow::Next
+            }
+            MicroOp::PullPchRts => {
+                self.s = self.s.wrapping_add(1);
+                let hi = bus.read(0x0100 + u16::from(self.s));
+                self.pc = (u16::from(hi) << 8) | self.addr;
+                Flow::Next // RtsIncPc suit
+            }
+            MicroOp::RtsIncPc => {
+                let _ = bus.read(self.pc); // lecture factice R*(PC)
+                self.pc = self.pc.wrapping_add(1);
+                Flow::Done
+            }
+            MicroOp::JsrFetchHi => {
+                let hi = bus.read(self.pc);
+                self.pc = (u16::from(hi) << 8) | self.addr;
+                Flow::Done
+            }
             other => unimplemented!("{:?}", other),
         }
     }
@@ -226,7 +286,7 @@ impl super::Cpu {
         }
     }
 
-    /// « Quoi » d'une instruction implicite (E04b : NOP ; E06a : transferts ; E07b : INX/INY/DEX/DEY ; E08a : ASL/LSR/ROL/ROR A).
+    /// « Quoi » d'une instruction implicite (E04b : NOP ; E06a : transferts ; E07b : INX/INY/DEX/DEY ; E08a : ASL/LSR/ROL/ROR A ; E09b : CLC SEC CLI SEI CLV CLD SED).
     pub(crate) fn exec_implied(&mut self, op: Operation) {
         match op {
             Operation::Nop => {}
@@ -271,6 +331,13 @@ impl super::Cpu {
             Operation::Lsr => self.a = self.lsr(self.a),
             Operation::Rol => self.a = self.rol(self.a),
             Operation::Ror => self.a = self.ror(self.a),
+            Operation::Clc => self.set_flag(FLAG_C, false), // E09b : instructions de flags
+            Operation::Sec => self.set_flag(FLAG_C, true),
+            Operation::Cli => self.set_flag(FLAG_I, false),
+            Operation::Sei => self.set_flag(FLAG_I, true),
+            Operation::Clv => self.set_flag(FLAG_V, false),
+            Operation::Cld => self.set_flag(FLAG_D, false),
+            Operation::Sed => self.set_flag(FLAG_D, true),
             other => unimplemented!("{:?}", other),
         }
     }

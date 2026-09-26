@@ -93,7 +93,7 @@ pub(crate) fn verifier_invariants(ops: &[u8]) {
 #[cfg(test)]
 mod t1 {
     use super::{run, run_at, run_ticks, verifier_invariants};
-    use crate::cpu::exec::{FLAG_C, FLAG_D, FLAG_N, FLAG_V, FLAG_Z};
+    use crate::cpu::exec::{FLAG_C, FLAG_D, FLAG_I, FLAG_N, FLAG_V, FLAG_Z};
     use crate::cpu::test_bus::Access;
 
     #[test]
@@ -625,5 +625,80 @@ mod t1 {
         });
         assert_eq!(ticks, 5);
         assert_eq!(cpu.pc, 0x1234);
+    }
+
+    // --- E09b : JSR/RTS/pile/flags ---
+
+    #[test]
+    fn jsr_journal() {
+        let (cpu, bus) = run(&[0x20, 0x00, 0x07], |_, _| {}); // S = FD après reset
+        assert_eq!(
+            &bus.log[1..],
+            &[
+                Access::Read(0x0601, 0x00),
+                Access::Read(0x01FD, 0),
+                Access::Write(0x01FD, 0x06),
+                Access::Write(0x01FC, 0x02),
+                Access::Read(0x0602, 0x07)
+            ]
+        );
+        assert_eq!(cpu.pc, 0x0700);
+        assert_eq!(cpu.s, 0xFB);
+    }
+
+    #[test]
+    fn rts() {
+        let (mut cpu, mut bus, ticks) = run_ticks(&[0x20, 0x00, 0x07], |_, bus| {
+            bus.load(0x0700, &[0x60]); // RTS à la cible du JSR
+        });
+        assert_eq!(ticks, 6); // JSR : opcode + 5 micro-ops
+        let ticks = cpu.step_instruction(&mut bus);
+        assert_eq!(ticks, 6); // RTS : opcode + 5 micro-ops
+        assert_eq!(cpu.pc, 0x0603);
+    }
+
+    #[test]
+    fn php_b_bit5() {
+        let (_, bus) = run(&[0x08], |cpu, _| cpu.p = 0x24);
+        assert_eq!(bus.mem[0x01FD], 0x34); // octet empilé : P | $30 (B forcé à 1)
+    }
+
+    #[test]
+    fn plp_ignore_b() {
+        let (cpu, _) = run(&[0x28], |cpu, bus| {
+            cpu.s = 0xFC;
+            bus.load(0x01FD, &[0xFF]); // octet de pile avec B posé
+        });
+        assert_eq!(cpu.p, 0xEF); // (FF & CF) | 20 : B ignoré, U forcé à 1
+    }
+
+    #[test]
+    fn pha_pla() {
+        let (mut cpu, mut bus, ticks) = run_ticks(&[0x48, 0x68], |cpu, _| cpu.a = 0x80);
+        assert_eq!(ticks, 3); // PHA : opcode + DummyReadPc + PushA
+        cpu.a = 0;
+        let ticks = cpu.step_instruction(&mut bus);
+        assert_eq!(ticks, 4); // PLA : opcode + DummyReadPc + DummyReadStack + PullA
+        assert_eq!(cpu.a, 0x80);
+        assert!(cpu.flag(FLAG_N));
+    }
+
+    #[test]
+    fn sei_cli() {
+        let (mut cpu, mut bus, ticks) = run_ticks(&[0x78, 0x58], |_, _| {});
+        assert_eq!(ticks, 2); // SEI : implicite
+        assert!(cpu.flag(FLAG_I)); // I = 1
+        let ticks = cpu.step_instruction(&mut bus);
+        assert_eq!(ticks, 2); // CLI : implicite
+        assert!(!cpu.flag(FLAG_I)); // I = 0
+    }
+
+    #[test]
+    fn invariants_e09b() {
+        verifier_invariants(&[
+            0x20, 0x60, // JSR/RTS
+            0x48, 0x08, 0x68, 0x28, // PHA/PHP/PLA/PLP
+            0x18, 0x38, 0x58, 0x78, 0xB8, 0xD8, 0xF8, // CLC SEC CLI SEI CLV CLD SED
+        ]);
     }
 }
