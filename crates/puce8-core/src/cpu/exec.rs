@@ -1,4 +1,4 @@
-//! Exécution des micro-ops et des opérations (E04b : reset, NOP, JAM ; E05a : adressage en lecture + LDA).
+//! Exécution des micro-ops et des opérations (E04b : reset, NOP, JAM ; E05a : adressage en lecture + LDA ; E05b : écriture/RMW + sondes STA/INC).
 
 use super::micro_op::{Flow, MicroOp};
 use super::operations::Operation;
@@ -133,6 +133,29 @@ impl super::Cpu {
                 self.exec_read(self.op, v);
                 Flow::Done
             }
+            // --- E05b : écriture et RMW (1 accès bus par micro-op) ---
+            MicroOp::DummyReadIndexed => {
+                let _ = bus.read((self.base & 0xFF00) | (self.addr & 0xFF));
+                Flow::Next
+            }
+            MicroOp::WriteExec => {
+                bus.write(self.addr, self.exec_write(self.op));
+                Flow::Done
+            }
+            MicroOp::RmwRead => {
+                self.data = bus.read(self.addr);
+                Flow::Next
+            }
+            MicroOp::RmwDummyWrite => {
+                let old = self.data;
+                bus.write(self.addr, old); // ancienne valeur
+                self.data = self.exec_rmw(self.op, old);
+                Flow::Next
+            }
+            MicroOp::RmwWrite => {
+                bus.write(self.addr, self.data);
+                Flow::Done
+            }
             other => unimplemented!("{:?}", other),
         }
     }
@@ -167,16 +190,24 @@ impl super::Cpu {
         }
     }
 
-    /// Valeur écrite par l'instruction (E06+).
-    #[cfg_attr(not(test), expect(dead_code, reason = "utilisé à partir de E06"))]
-    pub(crate) fn exec_write(&mut self, _op: Operation) -> u8 {
-        unimplemented!()
+    /// Valeur écrite par l'instruction (E05b : sonde STA).
+    pub(crate) fn exec_write(&mut self, op: Operation) -> u8 {
+        match op {
+            Operation::Sta => self.a,
+            other => unimplemented!("{:?}", other),
+        }
     }
 
-    /// Transformation lecture-modification-écriture (E08+).
-    #[cfg_attr(not(test), expect(dead_code, reason = "utilisé à partir de E08"))]
-    pub(crate) fn exec_rmw(&mut self, _op: Operation, _data: u8) -> u8 {
-        unimplemented!()
+    /// Transformation lecture-modification-écriture (E05b : sonde INC).
+    pub(crate) fn exec_rmw(&mut self, op: Operation, data: u8) -> u8 {
+        match op {
+            Operation::Inc => {
+                let v = data.wrapping_add(1);
+                self.set_zn(v); // N, Z
+                v
+            }
+            other => unimplemented!("{:?}", other),
+        }
     }
 
     // ---------- Aides sur les flags ----------
@@ -209,8 +240,8 @@ mod tests {
     use crate::cpu::Cpu;
 
     #[test]
-    fn stubs_disponibles() {
-        // exec_read appelé depuis E05a ; exec_write/exec_rmw restent des stubs (E06/E08).
+    fn sondes_disponibles() {
+        // Sondes E05a/E05b : LDA (lecture), STA (écriture), INC (RMW).
         let _ = (Cpu::exec_read, Cpu::exec_write, Cpu::exec_rmw);
     }
 
