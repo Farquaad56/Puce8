@@ -232,6 +232,7 @@ chemin = "ppu_vbl_nmi/rom_singles/06-suppression.nes"
 protocole = "blargg6000"
 phase = "ppu"
 etape = "E17"
+attendu = "echec"
 
 [[rom]]
 chemin = "ppu_vbl_nmi/rom_singles/09-even_odd_frames.nes"

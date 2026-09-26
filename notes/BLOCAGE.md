@@ -1,4 +1,6 @@
-# BLOCAGE — E17b (2026-09-26)
+# BLOCAGE - E17b (2026-09-26)
+
+RESOLU : ECHEC CONNU par decision humaine, voir E36.
 
 ## Symptome
 `ppu_vbl_nmi/rom_singles/06-suppression.nes` (protocole blargg6000) echech : la ROM ecrit "Failed" a $6004.
