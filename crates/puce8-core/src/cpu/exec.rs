@@ -141,7 +141,9 @@ impl super::Cpu {
                 Flow::Next
             }
             MicroOp::WriteExec => {
-                bus.write(self.addr, self.exec_write(self.op));
+                // E11c : l'écriture porte sur l'addr après exec_write (qui peut le corriger).
+                let v = self.exec_write(self.op);
+                bus.write(self.addr, v);
                 Flow::Done
             }
             MicroOp::RmwRead => {
@@ -465,15 +467,34 @@ impl super::Cpu {
         }
     }
 
-    /// Valeur écrite par l'instruction (E05b : STA ; E06a : STX/STY ; E11a : SAX).
+    /// Valeur écrite par l'instruction (E05b : STA ; E06a : STX/STY ; E11a : SAX ; E11c : SHY/SHX/AHX/TAS).
     pub(crate) fn exec_write(&mut self, op: Operation) -> u8 {
         match op {
-            Operation::Sta => self.a,          // aucun flag
-            Operation::Stx => self.x,          // aucun flag
-            Operation::Sty => self.y,          // aucun flag
+            Operation::Sta => self.a,                               // aucun flag
+            Operation::Stx => self.x,                               // aucun flag
+            Operation::Sty => self.y,                               // aucun flag
             Operation::Sax => self.a & self.x, // E11a : A & X tronqué ; aucun flag
+            Operation::Shy => self.unstable_store(self.y), // E11c : aucun flag
+            Operation::Shx => self.unstable_store(self.x), // E11c : aucun flag
+            Operation::Ahx => self.unstable_store(self.a & self.x), // E11c : aucun flag
+            Operation::Tas => {
+                // E11c : S = A & X, puis stockage ; aucun flag.
+                self.s = self.a & self.x;
+                self.unstable_store(self.s)
+            }
             other => unimplemented!("{:?}", other),
         }
+    }
+
+    /// E11c : stockage à page instable (SHY/SHX/AHX/TAS). H = octet haut de `base`
+    /// (adresse avant indexation) ; valeur écrite = reg & (H + 1) ; si franchissement,
+    /// l'octet haut d'addr est corrigé par la valeur écrite.
+    fn unstable_store(&mut self, reg: u8) -> u8 {
+        let v = reg & ((self.base >> 8) as u8).wrapping_add(1);
+        if self.crossed {
+            self.addr = (u16::from(v) << 8) | (self.addr & 0x00FF);
+        }
+        v
     }
 
     /// Transformation lecture-modification-écriture (E05b : sonde INC ; E08b : ASL/LSR/ROL/ROR/DEC ; E11a : SLO/RLA/SRE/RRA/DCP/ISB).

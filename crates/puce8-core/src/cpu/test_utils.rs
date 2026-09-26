@@ -94,7 +94,7 @@ pub(crate) fn verifier_invariants(ops: &[u8]) {
 mod t1 {
     use super::{run, run_at, run_ticks, verifier_invariants};
     use crate::cpu::exec::{FLAG_C, FLAG_D, FLAG_I, FLAG_N, FLAG_V, FLAG_Z};
-    use crate::cpu::opcodes::OPCODES;
+    use crate::cpu::opcodes::{Mode, OPCODES};
     use crate::cpu::test_bus::Access;
 
     #[test]
@@ -879,5 +879,38 @@ mod t1 {
     #[test]
     fn invariants_e11b() {
         verifier_invariants(&[0x0B, 0x2B, 0x4B, 0x6B, 0xCB, 0xAB, 0x8B, 0xBB]);
+    }
+
+    // --- E11c : SHY, SHX, AHX, TAS + nesttest complet ---
+
+    #[test]
+    fn shy_sans_page() {
+        let (_, bus) = run(&[0x9C, 0x00, 0x02], |cpu, _| {
+            cpu.y = 0xFF;
+            cpu.x = 0;
+        });
+        assert_eq!(bus.mem[0x0200], 0x03); // Y & (H + 1) : FF & 03
+    }
+
+    #[test]
+    fn tas_s() {
+        let (cpu, bus) = run(&[0x9B, 0x00, 0x02], |cpu, _| {
+            cpu.a = 0xF0;
+            cpu.x = 0x3C;
+            cpu.y = 0;
+        });
+        assert_eq!(cpu.s, 0x30); // S = A & X
+        assert_eq!(bus.mem[0x0200], 0x00); // S & (H + 1) : 30 & 03
+    }
+
+    #[test]
+    fn invariants_tous() {
+        let ops: Vec<u8> = (0..=255u8)
+            .filter(|&op| {
+                OPCODES[op as usize].mnemonic != "JAM" && OPCODES[op as usize].mode != Mode::Rel
+            })
+            .collect();
+        assert_eq!(ops.len(), 236); // hors JAM (12) et branchements (8)
+        verifier_invariants(&ops);
     }
 }
