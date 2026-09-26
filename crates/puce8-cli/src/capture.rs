@@ -37,6 +37,23 @@ pub fn write_screenshot(path: &str, fb: &[u16]) -> Result<(), String> {
     std::fs::write(path, bytes).map_err(|e| format!("cannot write {}: {}", path, e))
 }
 
+/// Ecrit une image d'indices palette (w x h) en PNG RGBA dans `path` (E18e4 : dumps de debogage).
+pub fn write_png(path: &str, w: usize, h: usize, px: &[u16]) -> Result<(), String> {
+    if px.len() != w * h {
+        return Err(format!("image de taille {} (attendu {})", px.len(), w * h));
+    }
+    let mut rgba = Vec::with_capacity(w * h * 4);
+    for &p in px {
+        let v = to_rgba(p);
+        rgba.extend_from_slice(&[(v >> 16) as u8, (v >> 8) as u8, v as u8, 0xFF]);
+    }
+    let file = std::fs::File::create(path).map_err(|e| format!("cannot write {}: {}", path, e))?;
+    let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), w as u32, h as u32);
+    encoder.set_color(png::ColorType::Rgba);
+    let mut writer = encoder.write_header().map_err(|e| e.to_string())?;
+    writer.write_image_data(&rgba).map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -26,6 +26,39 @@ fn do_info(args: &[String]) {
     println!("{}", cart.summary());
 }
 
+/// Chemin de sortie d'une option : doit commencer par out/ (REGLES par. 0).
+fn out_path(args: &[String], pos: usize, flag: &str) -> String {
+    let p = parse_next(args, pos);
+    if !p.starts_with("out/") {
+        die(2, &format!("{} path must start with out/ : {}", flag, p));
+    }
+    p
+}
+
+/// Dumps de debogage (E18e4) : table des motifs 256x128, nametables 512x480.
+fn dump_views(
+    nes: &puce8_core::nes::Nes,
+    patterns: Option<String>,
+    nametables: Option<String>,
+    pal: puce8_core::debug::ViewPalette,
+) {
+    use puce8_core::debug;
+    let ppu = &nes.bus.ppu;
+    let mapper = nes.bus.mapper.as_ref();
+    if let Some(p) = patterns {
+        let mut img = vec![0u16; debug::PATTERNS_W * debug::PATTERNS_H];
+        debug::render_patterns(ppu, mapper, pal, &mut img);
+        capture::write_png(&p, debug::PATTERNS_W, debug::PATTERNS_H, &img)
+            .unwrap_or_else(|e| die(2, &e));
+    }
+    if let Some(p) = nametables {
+        let mut img = vec![0u16; debug::NAMETABLES_W * debug::NAMETABLES_H];
+        debug::render_nametables(ppu, mapper, &mut img);
+        capture::write_png(&p, debug::NAMETABLES_W, debug::NAMETABLES_H, &img)
+            .unwrap_or_else(|e| die(2, &e));
+    }
+}
+
 fn do_run(args: &[String]) {
     // Parse args after "run <rom>"
     let rom = &args[2];
@@ -40,6 +73,9 @@ fn do_run(args: &[String]) {
     let mut print_hash = false;
     let mut trace_from_cycle: u64 = 0;
     let mut trace_max_lines: usize = 100_000;
+    let mut dump_patterns: Option<String> = None;
+    let mut dump_nametables: Option<String> = None;
+    let mut patterns_palette = puce8_core::debug::ViewPalette::Gray;
 
     let mut i = 0;
     while i < rest.len() {
@@ -66,6 +102,25 @@ fn do_run(args: &[String]) {
                     die(2, &format!("screenshot path must start with out/ : {}", p));
                 }
                 screenshot_path = Some(p);
+                i += 1;
+            }
+            "--dump-patterns" => {
+                dump_patterns = Some(out_path(rest, i, "--dump-patterns"));
+                i += 1;
+            }
+            "--dump-nametables" => {
+                dump_nametables = Some(out_path(rest, i, "--dump-nametables"));
+                i += 1;
+            }
+            "--patterns-palette" => {
+                let p = parse_next(rest, i);
+                patterns_palette = match p.as_str() {
+                    "gris" => puce8_core::debug::ViewPalette::Gray,
+                    n => match n.parse::<u8>() {
+                        Ok(k) if k <= 7 => puce8_core::debug::ViewPalette::Index(k),
+                        _ => die(2, "bad --patterns-palette (0-7 ou gris)"),
+                    },
+                };
                 i += 1;
             }
             "--print-hash" => {
@@ -132,6 +187,7 @@ fn do_run(args: &[String]) {
     if let Some(ref sp) = screenshot_path {
         capture::write_screenshot(sp, &nes.bus.ppu.framebuffer).unwrap_or_else(|e| die(2, &e));
     }
+    dump_views(&nes, dump_patterns, dump_nametables, patterns_palette);
     let r = harness::Resultat {
         rom: rom.to_string(),
         protocole: "run".to_string(),
