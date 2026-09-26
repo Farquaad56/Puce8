@@ -1,4 +1,4 @@
-//! Exécution des micro-ops et des opérations (E04b : reset, NOP, JAM ; E05a : adressage en lecture + LDA ; E05b : écriture/RMW + sondes STA/INC ; E06a : load/store/transferts ; E07a : ADC/SBC/AND/ORA/EOR ; E07b : CMP/CPX/CPY, BIT, INX/INY/DEX/DEY ; E08a : ASL/LSR/ROL/ROR A ; E08b : RMW mémoire + DEC ; E09a : branchements et JMP ; E09b : JSR/RTS/pile/instructions de flags).
+//! Exécution des micro-ops et des opérations (E04b : reset, NOP, JAM ; E05a : adressage en lecture + LDA ; E05b : écriture/RMW + sondes STA/INC ; E06a : load/store/transferts ; E07a : ADC/SBC/AND/ORA/EOR ; E07b : CMP/CPX/CPY, BIT, INX/INY/DEX/DEY ; E08a : ASL/LSR/ROL/ROR A ; E08b : RMW mémoire + DEC ; E09a : branchements et JMP ; E09b : JSR/RTS/pile/instructions de flags ; E09c : BRK/RTI).
 
 use super::micro_op::{Flow, MicroOp};
 use super::operations::Operation;
@@ -52,7 +52,9 @@ impl super::Cpu {
             MicroOp::ReadVectorHi => {
                 let hi = bus.read(self.vector.wrapping_add(1));
                 self.pc = (u16::from(hi) << 8) | self.addr;
-                // E12 : si vector == $FFFA alors need_nmi = false.
+                if self.vector == 0xFFFA {
+                    self.need_nmi = false; // vecteur NMI lu : la demande est consommée
+                }
                 Flow::Done
             }
             MicroOp::Jam => {
@@ -253,6 +255,32 @@ impl super::Cpu {
             }
             MicroOp::JsrFetchHi => {
                 let hi = bus.read(self.pc);
+                self.pc = (u16::from(hi) << 8) | self.addr;
+                Flow::Done
+            }
+            // --- E09c : BRK/RTI (1 accès bus par micro-op) ---
+            MicroOp::BrkPadding => {
+                let _ = bus.read(self.pc); // octet ignoré (padding)
+                self.pc = self.pc.wrapping_add(1);
+                Flow::Next
+            }
+            MicroOp::PushPBrk => {
+                // B forcé à 1 dans l'octet empilé (bit 5), avant de poser I.
+                bus.write(0x0100 + u16::from(self.s), self.p | 0x30);
+                self.s = self.s.wrapping_sub(1);
+                self.set_flag(FLAG_I, true); // I = 1 : les IRQ sont masqués
+                self.vector = if self.need_nmi { 0xFFFA } else { 0xFFFE };
+                Flow::Next
+            }
+            MicroOp::PullP => {
+                self.s = self.s.wrapping_add(1);
+                let v = bus.read(0x0100 + u16::from(self.s));
+                self.p = (v & 0xCF) | 0x20; // B restauré, U toujours posé
+                Flow::Next
+            }
+            MicroOp::PullPchRti => {
+                self.s = self.s.wrapping_add(1);
+                let hi = bus.read(0x0100 + u16::from(self.s));
                 self.pc = (u16::from(hi) << 8) | self.addr;
                 Flow::Done
             }

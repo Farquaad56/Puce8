@@ -94,6 +94,7 @@ pub(crate) fn verifier_invariants(ops: &[u8]) {
 mod t1 {
     use super::{run, run_at, run_ticks, verifier_invariants};
     use crate::cpu::exec::{FLAG_C, FLAG_D, FLAG_I, FLAG_N, FLAG_V, FLAG_Z};
+    use crate::cpu::opcodes::OPCODES;
     use crate::cpu::test_bus::Access;
 
     #[test]
@@ -700,5 +701,63 @@ mod t1 {
             0x48, 0x08, 0x68, 0x28, // PHA/PHP/PLA/PLP
             0x18, 0x38, 0x58, 0x78, 0xB8, 0xD8, 0xF8, // CLC SEC CLI SEI CLV CLD SED
         ]);
+    }
+
+    // --- E09c : BRK/RTI / couverture des 151 officiels ---
+
+    #[test]
+    fn brk_rti() {
+        let (mut cpu, mut bus, ticks) = run_ticks(&[0x00], |cpu, bus| {
+            cpu.set_flag(FLAG_I, false); // I = 0 : le BRK doit le poser
+            bus.set_vector(0xFFFE, 0x0800); // $FFFE:$FFFF → $0800
+            bus.load(0x0800, &[0x40]); // RTI à la cible du BRK
+        });
+        assert_eq!(ticks, 7); // BRK : opcode + 6 micro-ops (padding, PC, P, vecteur)
+        assert_eq!(cpu.s, 0xFA);
+        assert_eq!(bus.mem[0x01FD], 0x06); // octet haut de l'adresse de retour ($0602)
+        assert_eq!(bus.mem[0x01FC], 0x02); // octet bas
+        assert_eq!(bus.mem[0x01FB], 0x30); // P | $30 : B forcé, I pas encore posé (P = $20)
+        assert!(cpu.flag(FLAG_I)); // I = 1 : posé par le BRK
+        let ticks = cpu.step_instruction(&mut bus);
+        assert_eq!(ticks, 6); // RTI : opcode + 5 micro-ops
+        assert_eq!(cpu.pc, 0x0602);
+        assert_eq!(cpu.s, 0xFD);
+        assert_eq!(cpu.p, 0x20); // P restauré : B ignoré (bit 5 effacé), U forcé à 1
+    }
+
+    #[test]
+    fn brk_need_nmi() {
+        let (cpu, _) = run(&[0x00], |cpu, bus| {
+            cpu.need_nmi = true; // NMI en attente : le BRK prend le vecteur $FFFA
+            bus.set_vector(0xFFFA, 0x1234);
+            bus.set_vector(0xFFFE, 0x5678);
+        });
+        assert_eq!(cpu.pc, 0x1234); // $FFFA pris, pas $FFFE
+        assert!(!cpu.need_nmi); // consommé par ReadVectorHi
+    }
+
+    #[test]
+    fn couverture_officiels() {
+        for op in 0..=255u8 {
+            if !OPCODES[op as usize].official {
+                continue;
+            }
+            let code = match OPCODES[op as usize].mode.operand_len() {
+                0 => vec![op],
+                1 => vec![op, 0x10],
+                _ => vec![op, 0x10, 0x02], // opérandes $10 $02
+            };
+            run(&code, |_, _| {}); // pas de panique sur les 151 officiels
+        }
+    }
+
+    #[test]
+    fn invariants_e09() {
+        let branches = [0x10u8, 0x30, 0x50, 0x70, 0x90, 0xB0, 0xD0, 0xF0];
+        let ops: Vec<u8> = (0..=255u8)
+            .filter(|op| OPCODES[*op as usize].official && !branches.contains(op))
+            .collect();
+        assert_eq!(ops.len(), 143); // 151 officiels − 8 branchements
+        verifier_invariants(&ops);
     }
 }
