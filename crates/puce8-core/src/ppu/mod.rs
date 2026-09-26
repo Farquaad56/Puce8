@@ -4,6 +4,7 @@
 //! E17a : courses VBlank a la lecture $2002 (suppression du drapeau ou de la NMI).
 // wiki: PPU_scrolling ; wiki: PPU_masks_and_control
 
+pub mod background;
 pub mod registers;
 
 use crate::mapper::{Mapper, Mirroring};
