@@ -4,9 +4,10 @@ use crate::bus::Bus;
 use crate::cartridge::{Cartridge, RomError};
 use crate::cpu::Cpu;
 use crate::cpu::CpuBus;
-use crate::ppu::Ppu;
 
-/// La PPU tourne a 3x la frequence du CPU : 3 points PPU par cycle CPU.
+/// Points PPU par cycle CPU (NTSC).
+pub const PPU_DOTS_PER_CPU: u32 = 3;
+/// Points PPU joues AVANT le tick CPU (reglable en E17b/E36 : 1, 2 ou 3).
 pub const PPU_DOTS_BEFORE_CPU: u32 = 3;
 
 /// Machine NES complete (CPU + Bus + PPU).
@@ -25,14 +26,16 @@ impl Nes {
         })
     }
 
-    /// Un cycle CPU : 3 points PPU avant, le tick CPU, puis les points restants.
+    /// Un cycle CPU : PPU_DOTS_BEFORE_CPU points PPU, le tick CPU, puis les points restants.
     pub fn tick(&mut self) {
-        for _ in 0..PPU_DOTS_BEFORE_CPU {
+        for dot in 0..PPU_DOTS_PER_CPU {
+            if dot == PPU_DOTS_BEFORE_CPU {
+                self.cpu.tick(&mut self.bus);
+            }
             self.bus.ppu.tick(self.bus.mapper.as_mut());
         }
-        self.cpu.tick(&mut self.bus);
-        for _ in PPU_DOTS_BEFORE_CPU..3 {
-            self.bus.ppu.tick(self.bus.mapper.as_mut());
+        if PPU_DOTS_BEFORE_CPU >= PPU_DOTS_PER_CPU {
+            self.cpu.tick(&mut self.bus);
         }
         self.bus.mapper.cpu_cycle();
         self.bus.cpu_cycles += 1;
@@ -87,21 +90,21 @@ mod tests {
         let start_cycles = nes.bus.cpu_cycles;
         nes.tick();
         assert_eq!(nes.bus.cpu_cycles - start_cycles, 1);
+        assert_eq!(nes.bus.ppu.position(), (0, 3));
     }
 
     #[test]
     fn run_frame_cycles() {
         let mut nes = Nes::from_rom(&rom_minimale()).unwrap();
-        // Warm-up : passer le premier frame partiel (depuis la mise sous tension jusqu'a VBlank).
+        // Premiere image partielle (mise sous tension -> VBlank).
         nes.run_frame();
-
-        // Mesurer deux frames completes.
+        // Deux images completes.
         let start = nes.bus.cpu_cycles;
         nes.run_frame();
         nes.run_frame();
         let elapsed = nes.bus.cpu_cycles - start;
         assert!(
-            elapsed >= 59560 && elapsed <= 59562,
+            (59560..=59562).contains(&elapsed),
             "attendu ~59561 cycles pour 2 images, obtenu {}",
             elapsed
         );
@@ -109,45 +112,19 @@ mod tests {
 
     #[test]
     fn cpu_recoit_nmi() {
-        // ROM synthetique : boucle infinie + vecteur NMI qui incremente $0200.
         let mut rom = rom_minimale();
-        let prg_offset = 16;
-
-        // Programme principal a $8000 (offset 0) : JMP * (boucle infinie).
-        rom[prg_offset + 0] = 0x4C;
-        rom[prg_offset + 1] = 0xFF;
-        rom[prg_offset + 2] = 0xFF;
-
-        // Handler NMI a $8003 (offset 3) : INC $0200 puis RTI.
-        rom[prg_offset + 3] = 0xE6; // INC $0200
-        rom[prg_offset + 4] = 0x00;
-        rom[prg_offset + 5] = 0x02;
-        rom[prg_offset + 6] = 0x40; // RTI
-
-        // Vecteur RESET a $FFFC : pointe vers $8000 (programme principal).
-        rom[prg_offset + 0x3FFC] = 0x00; // low byte of $8000
-        rom[prg_offset + 0x3FFD] = 0x80; // high byte of $8000
-
-        // Vecteur NMI a $FFFA : pointe vers $8003 (handler).
-        rom[prg_offset + 0x3FFA] = 0x03; // low byte of $8003
-        rom[prg_offset + 0x3FFB] = 0x80; // high byte of $8003
-
+        let prg = 16; // offset du PRG dans le fichier
+        rom[prg..prg + 3].copy_from_slice(&[0x4C, 0x00, 0x80]); // $8000 : JMP $8000
+        rom[prg + 0x10..prg + 0x14].copy_from_slice(&[0xEE, 0x00, 0x02, 0x40]); // $8010 : INC $0200 ; RTI
+        rom[prg + 0x3FFA..prg + 0x4000].copy_from_slice(&[0x10, 0x80, 0x00, 0x80, 0x00, 0x80]); // NMI=$8010 RESET=$8000 IRQ=$8000
         let mut nes = Nes::from_rom(&rom).unwrap();
-
-        // Activer le NMI via $2000 bit 7 (a travers le bus, pas directement sur la PPU).
-        nes.bus.write(0x2000, 0x80);
-
-        // Executer une image complete : le CPU doit recevoir un NMI et incrementer $0200.
-        nes.run_frame();
-
-        // Verifier que l'interruption a ete echantillonnee (need_nmi devrait etre true).
-        assert!(nes.cpu.need_nmi, "need_nmi n'est pas pose apres run_frame");
-
-        // Donner au CPU quelques cycles pour traiter l'interruption a la prochaine frontiere d'instruction.
-        for _ in 0..10 {
-            nes.tick();
+        nes.bus.write(0x2000, 0x80); // NMI activee
+        for n in 1..=3u8 {
+            nes.run_frame(); // s'arrete en (241, 1)
+            for _ in 0..30 {
+                nes.tick(); // fin d'instruction + sequence NMI + INC
+            }
+            assert_eq!(nes.peek(0x0200), n); // exactement une NMI par image
         }
-
-        assert_eq!(nes.peek(0x0200), 1, "le NMI n'a pas ete traite");
     }
 }
