@@ -7,6 +7,7 @@
 
 pub mod background;
 pub mod palette;
+mod peek;
 pub mod registers;
 mod render;
 
@@ -373,6 +374,9 @@ mod tests {
             0
         }
         fn ppu_write(&mut self, _addr: u16, _value: u8) {}
+        fn ppu_peek(&self, _addr: u16) -> u8 {
+            0
+        }
         fn mirroring(&self) -> Mirroring {
             Mirroring::Horizontal
         }
@@ -398,6 +402,9 @@ mod tests {
             0
         }
         fn ppu_write(&mut self, _addr: u16, _value: u8) {}
+        fn ppu_peek(&self, _addr: u16) -> u8 {
+            0
+        }
         fn mirroring(&self) -> Mirroring {
             Mirroring::Horizontal
         }
@@ -426,6 +433,9 @@ mod tests {
         }
         fn ppu_write(&mut self, addr: u16, value: u8) {
             self.mem[usize::from(addr & 0x1FFF)] = value;
+        }
+        fn ppu_peek(&self, addr: u16) -> u8 {
+            self.mem[usize::from(addr & 0x1FFF)]
         }
         fn mirroring(&self) -> Mirroring {
             self.mir

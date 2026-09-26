@@ -83,6 +83,10 @@ impl Mapper for Nrom {
         self.chr.write(addr as usize, value);
     }
 
+    fn ppu_peek(&self, addr: u16) -> u8 {
+        self.chr.read(addr as usize) // NROM : lecture CHR sans effet de bord
+    }
+
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }

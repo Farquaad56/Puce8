@@ -83,6 +83,9 @@ mod tests {
         fn ppu_write(&mut self, addr: u16, value: u8) {
             self.mem[usize::from(addr & 0x1FFF)] = value;
         }
+        fn ppu_peek(&self, addr: u16) -> u8 {
+            self.mem[usize::from(addr & 0x1FFF)]
+        }
         fn mirroring(&self) -> Mirroring {
             Mirroring::Horizontal
         }

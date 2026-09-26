@@ -25,6 +25,8 @@ pub trait Mapper {
     /// PPU $0000-$1FFF (tables de motifs, CHR-ROM ou CHR-RAM).
     fn ppu_read(&mut self, addr: u16) -> u8;
     fn ppu_write(&mut self, addr: u16, value: u8);
+    /// Lecture PPU $0000-$1FFF SANS effet de bord (vues de debogage, E18e1) : meme valeur que `ppu_read`.
+    fn ppu_peek(&self, addr: u16) -> u8;
     /// Mirroring fixe, celui de l'en-tete.
     fn mirroring(&self) -> Mirroring;
     /// Appele pour CHAQUE adresse posee sur le bus PPU (rendu, $2006, $2007) -> compteur de lignes MMC3 (A12).
