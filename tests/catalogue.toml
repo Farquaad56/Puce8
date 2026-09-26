@@ -674,3 +674,29 @@ protocole = "image"
 phase = "timing"
 etape = "E36"
 optionnel = true
+
+# E18d : captures image (hash du framebuffer apres N images)
+
+[[rom]]
+chemin = "instr_test-v5/rom_singles/01-basics.nes"
+protocole = "image"
+phase = "ppu"
+etape = "E18"
+frames = 300
+hash_attendu = "e46137343cb6a102"
+
+[[rom]]
+chemin = "ppu_vbl_nmi/rom_singles/01-vbl_basics.nes"
+protocole = "image"
+phase = "ppu"
+etape = "E18"
+frames = 300
+hash_attendu = "b79f17457cbe1d55"
+
+[[rom]]
+chemin = "other/nestest.nes"
+protocole = "image"
+phase = "ppu"
+etape = "E18"
+frames = 60
+hash_attendu = "b821960a2b13a579"

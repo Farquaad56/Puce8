@@ -11,6 +11,8 @@ pub struct Resultat {
     pub frames: u32,
     pub cycles: u64,
     pub hash: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frame_hash: Option<String>,
 }
 
 fn make_result(
@@ -31,6 +33,7 @@ fn make_result(
         frames,
         cycles,
         hash: None,
+        frame_hash: None,
     }
 }
 
@@ -134,6 +137,37 @@ pub fn run_blargg_f8(nes: &mut Nes, frames: u32, result_addr: u16) -> Resultat {
         make_result(&rom, "blarggF8", "REUSSI", 1, "", frames, total_cycles)
     } else {
         make_result(&rom, "blarggF8", "ECHEC", code, "", frames, total_cycles)
+    }
+}
+
+/// Protocole image : joue `frames` images puis compare le hash du framebuffer
+/// (puce8_core::util::frame_hash) a `hash_attendu`.
+pub fn run_image(nes: &mut Nes, frames: u32, hash_attendu: &str) -> Resultat {
+    let rom = "unknown".to_string(); // caller should set this via wrapper
+    let mut total_cycles = 0u64;
+
+    for _ in 0..frames {
+        let start = nes.bus.cpu_cycles;
+        nes.run_frame();
+        total_cycles += nes.bus.cpu_cycles - start;
+    }
+
+    let h = format!(
+        "{:x}",
+        puce8_core::util::frame_hash(&nes.bus.ppu.framebuffer)
+    );
+    if h == hash_attendu {
+        make_result(&rom, "image", "REUSSI", 0, "", frames, total_cycles)
+    } else {
+        make_result(
+            &rom,
+            "image",
+            "ECHEC",
+            -1,
+            &format!("hash={} attendu={}", h, hash_attendu),
+            frames,
+            total_cycles,
+        )
     }
 }
 
@@ -292,6 +326,40 @@ mod tests {
         }
         let s = read_c_string(&nes, 0x6010, 10);
         assert_eq!(s, "Hi");
+    }
+
+    #[test]
+    fn test_run_image() {
+        let rom = build_rom(&[0xFF]); // boucle infinie, ecran stable
+        let mut nes = Nes::from_rom(&rom).expect("valid ROM");
+        for _ in 0..3 {
+            nes.run_frame();
+        }
+        let h = format!(
+            "{:x}",
+            puce8_core::util::frame_hash(&nes.bus.ppu.framebuffer)
+        );
+
+        let r = run_image(&mut nes, 1, h.as_str());
+        assert_eq!(r.resultat, "REUSSI");
+        assert_eq!(r.frames, 1);
+
+        // Deux executions identiques : meme hash (ecran statique).
+        let mut nes2 = Nes::from_rom(&rom).expect("valid ROM");
+        for _ in 0..3 {
+            nes2.run_frame();
+        }
+        let h2 = format!(
+            "{:x}",
+            puce8_core::util::frame_hash(&nes2.bus.ppu.framebuffer)
+        );
+        assert_eq!(h, h2);
+
+        // Hash attendu different -> ECHEC avec le hash reel dans texte.
+        let wrong = format!("{:x}", u64::from_str_radix(&h, 16).unwrap() ^ 1);
+        let r = run_image(&mut nes2, 1, &wrong);
+        assert_eq!(r.resultat, "ECHEC");
+        assert!(r.texte.contains(&format!("hash={}", h)));
     }
 
     #[test]

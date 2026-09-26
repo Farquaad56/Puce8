@@ -1,3 +1,4 @@
+mod capture;
 mod harness;
 mod suite;
 
@@ -35,6 +36,8 @@ fn do_run(args: &[String]) {
     let rest = &args[3..];
     let mut frames: Option<u32> = None;
     let mut trace_path: Option<String> = None;
+    let mut screenshot_path: Option<String> = None;
+    let mut print_hash = false;
     let mut trace_from_cycle: u64 = 0;
     let mut trace_max_lines: usize = 100_000;
 
@@ -57,6 +60,17 @@ fn do_run(args: &[String]) {
                 }
                 i += 1;
             }
+            "--screenshot" => {
+                let p = parse_next(rest, i);
+                if !p.starts_with("out/") {
+                    die(2, &format!("screenshot path must start with out/ : {}", p));
+                }
+                screenshot_path = Some(p);
+                i += 1;
+            }
+            "--print-hash" => {
+                print_hash = true;
+            }
             "--trace-from-cycle" => {
                 trace_from_cycle = parse_next(rest, i)
                     .parse()
@@ -75,6 +89,9 @@ fn do_run(args: &[String]) {
     }
 
     let frames = frames.unwrap_or(35); // default NES frames for a game run
+    if trace_path.is_some() && screenshot_path.is_some() {
+        die(2, "--trace and --screenshot are incompatible");
+    }
     let mut nes = puce8_core::nes::Nes::from_rom(&bytes).expect("valid ROM");
 
     if let Some(ref tp) = trace_path {
@@ -104,6 +121,17 @@ fn do_run(args: &[String]) {
     }
 
     let hash = Some(format!("{:x}", puce8_core::util::fnv1a64(&bytes)));
+    let frame_hash = if print_hash {
+        Some(format!(
+            "{:x}",
+            puce8_core::util::frame_hash(&nes.bus.ppu.framebuffer)
+        ))
+    } else {
+        None
+    };
+    if let Some(ref sp) = screenshot_path {
+        capture::write_screenshot(sp, &nes.bus.ppu.framebuffer).unwrap_or_else(|e| die(2, &e));
+    }
     let r = harness::Resultat {
         rom: rom.to_string(),
         protocole: "run".to_string(),
@@ -113,6 +141,7 @@ fn do_run(args: &[String]) {
         frames,
         cycles: nes.bus.cpu_cycles,
         hash,
+        frame_hash,
     };
     println!("{}", serde_json::to_string(&r).unwrap());
 }

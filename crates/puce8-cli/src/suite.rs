@@ -94,6 +94,14 @@ fn run_entry(entry: &RomEntry, roms_dir: &Path) -> SuiteResult {
             let addr = entry.result_addr.unwrap_or(0xF8);
             harness::run_blargg_f8(&mut nes, fr, addr)
         }
+        "image" => {
+            let fr = entry.frames.unwrap_or(35);
+            harness::run_image(
+                &mut nes,
+                fr,
+                entry.hash_attendu.as_deref().unwrap_or("<aucun>"),
+            )
+        }
         _ => {
             return SuiteResult {
                 rom: entry.chemin.clone(),

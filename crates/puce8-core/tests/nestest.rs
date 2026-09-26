@@ -1,6 +1,6 @@
 //! nestest (E10b) : les 5 003 premieres lignes de `tests/roms/other/nestest.log`
 //! (opcodes officiels) doivent etre identiques a notre trace, PPU non compare.
-//! E11c : `nesttest_complet` compare les 8 991 lignes du log et verifie les codes d'erreur.
+//! E11c : `nestest_complet` compare les 8 991 lignes du log et verifie les codes d'erreur.
 
 use puce8_core::bus::Bus;
 use puce8_core::cartridge::Cartridge;
@@ -12,7 +12,7 @@ use puce8_core::nes::Nes;
 /// Derniere ligne de la section "opcodes officiels" (la 5 004 est le premier opcode non officiel).
 const LAST_OFFICIAL_LINE: usize = 5003;
 
-/// Toutes les lignes du log (E11c : nesttest complet, opcodes non officiels inclus).
+/// Toutes les lignes du log (E11c : nestest complet, opcodes non officiels inclus).
 const LAST_LINE: usize = 8991;
 
 #[test]
@@ -22,7 +22,7 @@ fn nestest_officiels() {
         "/../../tests/roms/other/nestest.nes"
     );
     let Ok(rom) = std::fs::read(rom_path) else {
-        eprintln!("nesttest_officiels ignore : {rom_path} absent");
+        eprintln!("nestest_officiels ignore : {rom_path} absent");
         return;
     };
     let log_path = concat!(
@@ -30,7 +30,7 @@ fn nestest_officiels() {
         "/../../tests/roms/other/nestest.log"
     );
     let Ok(log) = std::fs::read_to_string(log_path) else {
-        eprintln!("nesttest_officiels ignore : {log_path} absent");
+        eprintln!("nestest_officiels ignore : {log_path} absent");
         return;
     };
 
@@ -72,13 +72,13 @@ fn nestest_officiels() {
 }
 
 #[test]
-fn nesttest_complet() {
+fn nestest_complet() {
     let rom_path = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../tests/roms/other/nestest.nes"
     );
     let Ok(rom) = std::fs::read(rom_path) else {
-        eprintln!("nesttest_complet ignore : {rom_path} absent");
+        eprintln!("nestest_complet ignore : {rom_path} absent");
         return;
     };
     let log_path = concat!(
@@ -86,7 +86,7 @@ fn nesttest_complet() {
         "/../../tests/roms/other/nestest.log"
     );
     let Ok(log) = std::fs::read_to_string(log_path) else {
-        eprintln!("nesttest_complet ignore : {log_path} absent");
+        eprintln!("nestest_complet ignore : {log_path} absent");
         return;
     };
 
@@ -131,7 +131,7 @@ fn nesttest_complet() {
     assert_eq!(bus.peek(0x0003), 0);
 }
 
-/// E13b : nesttest complet avec colonne PPU, via Nes::tick (horloge maitre).
+/// E13b : nestest complet avec colonne PPU, via Nes::tick (horloge maitre).
 #[test]
 fn nestest_avec_ppu() {
     let rom_path = concat!(
