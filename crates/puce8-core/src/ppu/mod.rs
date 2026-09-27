@@ -41,6 +41,8 @@ pub struct Ppu {
     pub palette: [u8; 32],
     /// OAM : 256 octets de donnees d'objet (E16a).
     pub oam: [u8; 256],
+    /// Evaluation des sprites de la ligne suivante (E20a).
+    pub sprite_eval: sprites::SpriteEval,
     /// Latch du numero de tuile charge en phase 1 (E18b) ; alimente les adresses motif.
     pub nt_latch: u8,
     /// Latch des attributs (2 bits) charges en phase 3 (E18b).
@@ -77,6 +79,7 @@ impl Ppu {
             ciram: [0; 4096],
             palette: [0; 32],
             oam: [0; 256],
+            sprite_eval: sprites::SpriteEval::new(),
             nt_latch: 0,
             at_latch: 0,
             pat_lo_latch: 0,
@@ -117,6 +120,7 @@ impl Ppu {
         }
         self.render_dot(); // E18c3 : decalage/rechargement puis pixel
         self.bg_fetch(mapper); // E18b : fetchs de fond du point courant (si rendu actif)
+        self.sprite_eval_dot(); // E20a2 : evaluation des sprites (ligne suivante)
     }
 
     /// Fetchs de fond au point pres (E18b) : declenches si le rendu est actif
@@ -233,6 +237,9 @@ impl Ppu {
 
     /// Lecture $2004 : oam[oam_addr], masquee a $E3 si oam_addr % 4 == 2 (attributs).
     fn read_oam(&self) -> u8 {
+        if self.oam_clear_read() {
+            return 0xFF; // E20a2 : effacement de l'OAM secondaire en cours
+        }
         let value = self.oam[usize::from(self.regs.oam_addr)];
         if self.regs.oam_addr % 4 == 2 {
             value & 0xE3

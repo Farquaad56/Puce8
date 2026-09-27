@@ -2,6 +2,8 @@
 //! Machine a etats PURE (aucun acces au Ppu) : `step` est appele a chaque point 1-256
 //! d'une ligne visible avec rendu actif ; elle prepare la ligne SUIVANTE.
 
+use super::Ppu;
+
 /// Etat de l'evaluation des sprites pour une ligne.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SpriteEval {
@@ -110,6 +112,39 @@ impl SpriteEval {
     }
 }
 
+impl Ppu {
+    /// Hauteur des sprites : 16 si `ctrl & 0x20`, sinon 8.
+    pub fn sprite_height(&self) -> u16 {
+        if self.regs.ctrl & 0x20 != 0 {
+            16
+        } else {
+            8
+        }
+    }
+
+    /// Travail des sprites du point courant, appele par `tick` apres `bg_fetch` (E20a2).
+    /// SIMPLIFICATION: l'evaluation commence toujours au sprite 0 (oam_addr ignore), revu en E36.
+    pub(super) fn sprite_eval_dot(&mut self) {
+        if self.regs.mask & 0x18 == 0 {
+            return; // rendu inactif : ni evaluation, ni remise a zero de oam_addr
+        }
+        let (line, dot) = (self.line, self.point);
+        if line <= 239 && (1..=256).contains(&dot) {
+            let height = self.sprite_height();
+            self.sprite_eval.step(dot, &self.oam, line, height);
+        }
+        if (line <= 239 || line == 261) && (257..=320).contains(&dot) {
+            self.regs.oam_addr = 0;
+        }
+    }
+
+    /// Vrai pendant l'effacement de l'OAM secondaire (lignes 0-239, points 1-64, rendu actif) :
+    /// une lecture de `$2004` renvoie alors `$FF`.
+    pub(super) fn oam_clear_read(&self) -> bool {
+        self.regs.mask & 0x18 != 0 && self.line <= 239 && (1..=64).contains(&self.point)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -191,5 +226,65 @@ mod tests {
         let e = ligne(&oam, 50, 8);
         assert_eq!(e.found, 1);
         assert!(e.sprite0_in_range);
+    }
+
+    // ---------- E20a2 : branchement dans le Ppu ----------
+
+    use crate::bus::Bus;
+
+    /// PPU en (line, 0) avec rendu actif et une OAM hors ecran.
+    fn ppu_ligne(line: u16) -> (Ppu, Bus) {
+        let mut ppu = Ppu::new();
+        ppu.oam = oam_vide();
+        ppu.regs.mask = 0x18;
+        ppu.line = line;
+        ppu.point = 0;
+        (ppu, Bus::for_test_with_prg(&[0xA9]))
+    }
+
+    fn jusqu_a(ppu: &mut Ppu, bus: &mut Bus, cible: (u16, u16)) {
+        while ppu.position() != cible {
+            ppu.tick(&mut (*bus.mapper));
+        }
+    }
+
+    #[test]
+    fn eval_dans_tick() {
+        let (mut ppu, mut bus) = ppu_ligne(10);
+        ppu.oam[12] = 9; // sprite 3 : Y = 9, ligne 10 dans la plage
+        jusqu_a(&mut ppu, &mut bus, (10, 256));
+        assert_eq!(ppu.sprite_eval.found, 1);
+        assert_eq!(&ppu.sprite_eval.secondary[0..4], &ppu.oam[12..16]);
+    }
+
+    #[test]
+    fn oam_addr_257() {
+        let (mut ppu, mut bus) = ppu_ligne(10);
+        ppu.regs.oam_addr = 0x55;
+        jusqu_a(&mut ppu, &mut bus, (10, 256));
+        assert_eq!(ppu.regs.oam_addr, 0x55);
+        jusqu_a(&mut ppu, &mut bus, (10, 257));
+        assert_eq!(ppu.regs.oam_addr, 0);
+    }
+
+    #[test]
+    fn lecture_2004_effacement() {
+        let (mut ppu, mut bus) = ppu_ligne(10);
+        ppu.oam[0] = 0x42;
+        jusqu_a(&mut ppu, &mut bus, (10, 30));
+        assert_eq!(ppu.cpu_read_register(4, &mut (*bus.mapper)), 0xFF);
+        ppu.regs.mask = 0; // rendu coupe : lecture normale
+        assert_eq!(ppu.cpu_read_register(4, &mut (*bus.mapper)), 0x42);
+    }
+
+    #[test]
+    fn pas_d_eval_sans_rendu() {
+        let (mut ppu, mut bus) = ppu_ligne(10);
+        ppu.regs.mask = 0;
+        ppu.oam[12] = 9;
+        ppu.regs.oam_addr = 0x55;
+        jusqu_a(&mut ppu, &mut bus, (10, 300));
+        assert_eq!(ppu.sprite_eval.found, 0);
+        assert_eq!(ppu.regs.oam_addr, 0x55);
     }
 }
