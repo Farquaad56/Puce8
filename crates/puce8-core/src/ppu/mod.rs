@@ -43,6 +43,8 @@ pub struct Ppu {
     pub oam: [u8; 256],
     /// Evaluation des sprites de la ligne suivante (E20a).
     pub sprite_eval: sprites::SpriteEval,
+    /// Drapeau d'overflow des sprites ($2002 bit 5), remis a 0 en (261, 1) (E20b2).
+    pub sprite_overflow: bool,
     /// Latch du numero de tuile charge en phase 1 (E18b) ; alimente les adresses motif.
     pub nt_latch: u8,
     /// Latch des attributs (2 bits) charges en phase 3 (E18b).
@@ -80,6 +82,7 @@ impl Ppu {
             palette: [0; 32],
             oam: [0; 256],
             sprite_eval: sprites::SpriteEval::new(),
+            sprite_overflow: false,
             nt_latch: 0,
             at_latch: 0,
             pat_lo_latch: 0,
@@ -115,6 +118,7 @@ impl Ppu {
                 self.vblank = false; // VBlank = 0 en (261, 1)
                 self.suppress_vbl = false; // suppression limitee a l'image courante
                 self.nmi_suppressed = false; // fin du VBlank : nmi_line() redevient normale
+                self.sprite_overflow = false; // E20b2 : overflow remis a 0
             }
             _ => {}
         }
@@ -286,7 +290,7 @@ impl Ppu {
             // $2004 : renvoie oam[oam_addr] sans increment ; masque a $E3 sur les attributs.
             return self.read_oam();
         }
-        let value = self.regs.read(r as u8, self.vblank);
+        let value = self.regs.read(r as u8, self.vblank) | self.status_sprites(r); // E20b2
         if r == 2 {
             match (self.line, self.point) {
                 // $2002 lu un point avant le VBlank : lit 0 et le drapeau ne sera pas
@@ -321,7 +325,7 @@ impl Ppu {
             // $2004 : oam[oam_addr] sans increment ; masque a $E3 sur les attributs.
             return self.read_oam();
         }
-        self.regs.peek(r as u8, self.vblank)
+        self.regs.peek(r as u8, self.vblank) | self.status_sprites(r) // E20b2
     }
 
     /// Ecriture CPU d'un registre PPU (reg = addr & 7).

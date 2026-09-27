@@ -168,9 +168,22 @@ impl Ppu {
         if line <= 239 && (1..=256).contains(&dot) {
             let height = self.sprite_height();
             self.sprite_eval.step(dot, &self.oam, line, height);
+            if self.sprite_eval.overflow {
+                self.sprite_overflow = true; // E20b2 : reste pose jusqu'en (261, 1)
+            }
         }
         if (line <= 239 || line == 261) && (257..=320).contains(&dot) {
             self.regs.oam_addr = 0;
+        }
+    }
+
+    /// Bits "sprites" de `$2002` (E20b2) : bit 5 = overflow. Le bit 6 (sprite 0 hit) viendra en E21.
+    /// `r` = numero du registre (0-7) ; renvoie 0 pour les autres registres.
+    pub(super) fn status_sprites(&self, r: usize) -> u8 {
+        if r == 2 && self.sprite_overflow {
+            0x20
+        } else {
+            0
         }
     }
 
@@ -370,5 +383,39 @@ mod tests {
         }
         oam[9 * 4] = 200;
         assert!(!ligne(&oam, 200, 8).overflow);
+    }
+
+    // ---------- E20b2 : drapeau d'overflow dans le Ppu ($2002 bit 5) ----------
+
+    /// PPU en (200, 0), rendu actif, 9 sprites sur la ligne 200.
+    fn ppu_9_sprites() -> (Ppu, Bus) {
+        let (mut ppu, bus) = ppu_ligne(200);
+        for n in 0..9 {
+            ppu.oam[n * 4] = 200;
+        }
+        (ppu, bus)
+    }
+
+    #[test]
+    fn overflow_2002() {
+        let (mut ppu, mut bus) = ppu_9_sprites();
+        assert_eq!(ppu.cpu_peek_register(2) & 0x20, 0);
+        jusqu_a(&mut ppu, &mut bus, (200, 257));
+        assert!(ppu.sprite_overflow);
+        assert_eq!(ppu.cpu_peek_register(2) & 0x20, 0x20);
+        // La lecture de $2002 n'efface PAS l'overflow (seul VBlank est efface).
+        assert_eq!(ppu.cpu_read_register(2, &mut (*bus.mapper)) & 0x20, 0x20);
+        assert_eq!(ppu.cpu_read_register(2, &mut (*bus.mapper)) & 0x20, 0x20);
+    }
+
+    #[test]
+    fn overflow_efface_261() {
+        let (mut ppu, mut bus) = ppu_9_sprites();
+        jusqu_a(&mut ppu, &mut bus, (200, 257));
+        ppu.oam = oam_vide(); // plus de sprites : l'overflow reste pose jusqu'a (261, 1)
+        jusqu_a(&mut ppu, &mut bus, (261, 0));
+        assert!(ppu.sprite_overflow);
+        jusqu_a(&mut ppu, &mut bus, (261, 1));
+        assert!(!ppu.sprite_overflow);
     }
 }
