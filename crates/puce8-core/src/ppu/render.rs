@@ -24,15 +24,27 @@ impl Ppu {
         }
     }
 
+    /// Pixel du fond (couleur 0-3, palette 0-3) au x donne, apres masquage
+    /// (`mask & 0x08 == 0`, ou x < 8 avec `mask & 0x02 == 0` -> couleur 0).
+    fn bg_pixel(&self, x: usize) -> (u8, u8) {
+        let mask = self.regs.mask;
+        let (px, pal) = self.bg.pixel(self.regs.x);
+        if mask & 0x08 == 0 || (x < 8 && mask & 0x02 == 0) {
+            (0, pal)
+        } else {
+            (px, pal)
+        }
+    }
+
     /// Valeur stockee pour le pixel x : index palette (0-5) | emphase (6-8).
     fn couleur_pixel(&self, x: usize) -> u16 {
         let mask = self.regs.mask;
         let index = if self.rendu_actif() {
-            let (mut px, pal) = self.bg.pixel(self.regs.x);
-            if mask & 0x08 == 0 || (x < 8 && mask & 0x02 == 0) {
-                px = 0;
-            }
-            if px == 0 {
+            let (px, pal) = self.bg_pixel(x);
+            let sp = self.sprite_at(x); // E21b2
+            if sp.px != 0 && (!sp.behind || px == 0) {
+                self.palette[usize::from(0x10 + sp.pal * 4 + sp.px)]
+            } else if px == 0 {
                 self.palette[0]
             } else {
                 self.palette[usize::from(pal * 4 + px)]

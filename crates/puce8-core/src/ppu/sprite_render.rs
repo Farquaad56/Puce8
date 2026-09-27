@@ -145,6 +145,16 @@ impl Ppu {
             _ => {}
         }
     }
+
+    /// Pixel des sprites au x donne (E21b2), apres masquage : aucun sprite sur la ligne 0,
+    /// ni si `mask & 0x10 == 0`, ni si x < 8 avec `mask & 0x04 == 0`.
+    pub(super) fn sprite_at(&self, x: usize) -> SpritePixel {
+        let mask = self.regs.mask;
+        if self.line == 0 || mask & 0x10 == 0 || (x < 8 && mask & 0x04 == 0) {
+            return SpritePixel::default();
+        }
+        self.sprite_line.pixel(x as u8)
+    }
 }
 
 #[cfg(test)]
@@ -361,5 +371,66 @@ mod tests {
         l.slots[3] = plein(10, 0, false);
         l.count = 3; // l'emplacement 3 est ignore
         assert_eq!(l.pixel(12).px, 0);
+    }
+
+    // ---------- E21b2 : sprites dans le framebuffer ----------
+
+    /// Image complete : tuile 1 (fond, couleur 1) et tuile 2 (sprite, couleur 1) ; nametable remplie de `nt` ;
+    /// sprite 0 = (Y = 49, tuile 2, `attr`, X = `sx`) -> visible lignes 50-57.
+    /// palette[0] = $0F, fond couleur 1 = $16, sprite palette 0 couleur 1 = $2A.
+    fn image(mask: u8, nt: u8, attr: u8, sx: u8) -> Ppu {
+        let mut m = espion();
+        for r in 0..8 {
+            m.mem[0x10 + r] = 0xFF; // tuile 1
+            m.mem[0x20 + r] = 0xFF; // tuile 2
+        }
+        let mut ppu = ppu_ligne(261);
+        ppu.regs.mask = mask;
+        ppu.ciram[..960].fill(nt);
+        ppu.palette[0] = 0x0F;
+        ppu.palette[1] = 0x16;
+        ppu.palette[0x11] = 0x2A;
+        ppu.oam[0..4].copy_from_slice(&[49, 2, attr, sx]);
+        jusqu_a(&mut ppu, &mut m, (240, 0));
+        ppu
+    }
+
+    fn px(ppu: &Ppu, x: usize, y: usize) -> u16 {
+        ppu.frame_buffer()[y * 256 + x]
+    }
+
+    #[test]
+    fn sprite_devant() {
+        let ppu = image(0x1E, 1, 0x00, 100);
+        assert_eq!(px(&ppu, 100, 50), 0x2A);
+        assert_eq!(px(&ppu, 107, 57), 0x2A);
+        assert_eq!(px(&ppu, 108, 50), 0x16); // hors du sprite : fond
+        assert_eq!(px(&ppu, 100, 49), 0x16); // ligne 49 : pas encore le sprite
+    }
+
+    #[test]
+    fn priorite_derriere() {
+        let ppu = image(0x1E, 1, 0x20, 100); // derriere + fond opaque -> fond
+        assert_eq!(px(&ppu, 100, 50), 0x16);
+    }
+
+    #[test]
+    fn derriere_fond_transparent() {
+        let ppu = image(0x1E, 0, 0x20, 100); // derriere + fond transparent -> sprite
+        assert_eq!(px(&ppu, 100, 50), 0x2A);
+    }
+
+    #[test]
+    fn clip_sprites() {
+        let ppu = image(0x1A, 1, 0x00, 0); // mask & 0x04 == 0 : sprites caches pour x < 8
+        assert_eq!(px(&ppu, 3, 50), 0x16);
+        let ppu = image(0x1E, 1, 0x00, 0);
+        assert_eq!(px(&ppu, 3, 50), 0x2A);
+    }
+
+    #[test]
+    fn sprites_coupes() {
+        let ppu = image(0x0A, 1, 0x00, 100); // mask & 0x10 == 0
+        assert_eq!(px(&ppu, 100, 50), 0x16);
     }
 }
