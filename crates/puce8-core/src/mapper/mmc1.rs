@@ -76,6 +76,7 @@ pub struct Mmc1 {
     chr0: u8,
     chr1: u8,
     prg: u8,
+    has_battery: bool,
 }
 
 impl Mmc1 {
@@ -83,6 +84,7 @@ impl Mmc1 {
         let chr = ChrMemory::from_cart(&cart);
         Mmc1 {
             prg_ram: vec![0; cart.prg_ram_size.max(PRG_RAM_MIN)],
+            has_battery: cart.has_battery,
             prg_rom: cart.prg_rom,
             chr,
             serial: Serial::default(),
@@ -136,6 +138,11 @@ impl Mmc1 {
             .copied()
     }
 
+    /// PRG-RAM active : bit 4 du registre PRG a 0 (E26b2).
+    fn ram_enabled(&self) -> bool {
+        self.prg & 0x10 == 0
+    }
+
     /// Offset dans la PRG-RAM ($6000-$7FFF, miroir si plus courte que 8 Ko).
     fn ram_offset(&self, addr: u16) -> usize {
         usize::from(addr - 0x6000) % self.prg_ram.len()
@@ -144,7 +151,7 @@ impl Mmc1 {
     /// Lecture sans effet de bord : meme valeur que `cpu_read`.
     fn read_at(&self, addr: u16) -> Option<u8> {
         match addr {
-            0x6000..=0x7FFF => Some(self.prg_ram[self.ram_offset(addr)]),
+            0x6000..=0x7FFF if self.ram_enabled() => Some(self.prg_ram[self.ram_offset(addr)]),
             0x8000..=0xFFFF => self.prg_read(addr),
             _ => None,
         }
@@ -186,7 +193,7 @@ impl Mapper for Mmc1 {
 
     fn cpu_write(&mut self, addr: u16, value: u8) {
         match addr {
-            0x6000..=0x7FFF => {
+            0x6000..=0x7FFF if self.ram_enabled() => {
                 let o = self.ram_offset(addr);
                 self.prg_ram[o] = value;
             }
@@ -223,6 +230,19 @@ impl Mapper for Mmc1 {
 
     fn cpu_cycle(&mut self) {
         self.serial.tick();
+    }
+
+    fn battery_ram(&self) -> Option<&[u8]> {
+        if self.has_battery {
+            Some(self.prg_ram.as_slice())
+        } else {
+            None
+        }
+    }
+
+    fn load_battery_ram(&mut self, data: &[u8]) {
+        let n = data.len().min(self.prg_ram.len());
+        self.prg_ram[..n].copy_from_slice(&data[..n]);
     }
 }
 
@@ -436,5 +456,31 @@ mod tests {
         write_serial(&mut m, 0xC000, 2); // ignore en mode 8 Ko
         assert_eq!(m.ppu_read(0x0000), 4);
         assert_eq!(m.ppu_read(0x1000), 5);
+    }
+
+    // ---------- E26b2 ----------
+
+    #[test]
+    fn prg_ram_desactivee() {
+        let mut m = Mmc1::new(cart(8));
+        m.cpu_write(0x6000, 0x42);
+        assert_eq!(m.cpu_read(0x6000), Some(0x42));
+        write_serial(&mut m, 0xE000, 0x10); // PRG bit 4 = 1 : RAM desactivee
+        assert_eq!(m.cpu_read(0x6000), None);
+        assert_eq!(m.cpu_peek(0x6000), None);
+        m.cpu_write(0x6000, 0x99); // ignoree
+        write_serial(&mut m, 0xE000, 0x00);
+        assert_eq!(m.cpu_read(0x6000), Some(0x42));
+    }
+
+    #[test]
+    fn batterie() {
+        let mut c = cart(8);
+        c.has_battery = true;
+        let mut m = Mmc1::new(c);
+        m.load_battery_ram(&[1, 2, 3]);
+        assert_eq!(m.cpu_read(0x6001), Some(2));
+        assert_eq!(m.battery_ram().map(|r| r.len()), Some(8 * 1024));
+        assert!(Mmc1::new(cart(8)).battery_ram().is_none());
     }
 }
