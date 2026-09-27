@@ -1,7 +1,7 @@
 //! Fenetre eframe/egui : ecran, cadence, barre d'etat (E23a2) ; menus, raccourcis,
 //! ouverture de ROM et glisser-deposer (E23a3) ; fenetres de debogage (E23b2/E23b3).
 
-use crate::{app, viewers};
+use crate::{app, input, viewers};
 use eframe::egui;
 use puce8_core::nes::Nes;
 use std::time::Instant;
@@ -26,10 +26,18 @@ pub struct Puce8App {
     /// E23b2/E23b3 : fenetres de debogage.
     tiles: viewers::TileViewer,
     tilemap: viewers::TilemapViewer,
+    /// E24b2 : manettes (None si gilrs n'a pas pu demarrer) et message d'erreur associe.
+    gilrs: Option<gilrs::Gilrs>,
+    pad_error: Option<String>,
 }
 
 impl Puce8App {
     pub fn new(nes: Option<Nes>, rom_name: String, scale: u32) -> Self {
+        // E24b2 : un seul contexte gilrs ; en cas d'echec, clavier seul (pas de panique).
+        let (gilrs, pad_error) = match gilrs::Gilrs::new() {
+            Ok(g) => (Some(g), None),
+            Err(e) => (None, Some(format!("manettes indisponibles : {e}"))),
+        };
         Puce8App {
             nes,
             rom_name,
@@ -46,6 +54,8 @@ impl Puce8App {
             error: None,
             tiles: viewers::TileViewer::default(),
             tilemap: viewers::TilemapViewer::default(),
+            gilrs,
+            pad_error,
         }
     }
 
@@ -103,6 +113,33 @@ impl Puce8App {
                 self.error = None;
             }
             Err(e) => self.error = Some(e),
+        }
+    }
+
+    /// Entrees joueur (E24b2) : clavier (joueur 1) + manettes gilrs (1re -> joueur 1, 2e -> joueur 2).
+    fn update_inputs(&mut self, ctx: &egui::Context) {
+        let clavier = if ctx.egui_wants_keyboard_input() {
+            0 // un champ texte a le focus : on ne joue pas
+        } else {
+            ctx.input(|i| input::keyboard_buttons(|k| i.key_down(k)))
+        };
+        let mut pads = [0u8; 2];
+        if let Some(g) = self.gilrs.as_mut() {
+            while g.next_event().is_some() {} // branchement / debranchement a chaud
+            let mut ids: Vec<gilrs::GamepadId> = g.gamepads().map(|(id, _)| id).collect();
+            ids.sort_by_key(|id| usize::from(*id));
+            for (slot, id) in pads.iter_mut().zip(ids) {
+                let gp = g.gamepad(id);
+                *slot = input::pad_buttons(
+                    |b| gp.is_pressed(to_gilrs(b)),
+                    gp.value(gilrs::Axis::LeftStickX),
+                    gp.value(gilrs::Axis::LeftStickY),
+                );
+            }
+        }
+        if let Some(nes) = self.nes.as_mut() {
+            nes.set_buttons(0, input::sanitize(input::merge(clavier, pads[0])));
+            nes.set_buttons(1, input::sanitize(pads[1]));
         }
     }
 
@@ -227,6 +264,7 @@ impl eframe::App for Puce8App {
         let ctx = ui.ctx().clone();
         self.shortcuts(&ctx);
         self.dropped_files(&ctx);
+        self.update_inputs(&ctx); // E24b2
         let turbo = !ctx.egui_wants_keyboard_input() && ctx.input(|i| i.key_down(egui::Key::Tab));
         let new_frame = self.step(turbo);
         self.update_texture(&ctx, new_frame);
@@ -240,6 +278,10 @@ impl eframe::App for Puce8App {
                 if self.paused {
                     ui.separator();
                     ui.label("PAUSE");
+                }
+                if let Some(e) = &self.pad_error {
+                    ui.separator();
+                    ui.label(e);
                 }
             });
         });
@@ -265,6 +307,22 @@ impl eframe::App for Puce8App {
             self.tilemap.show(&ctx, nes);
         }
         ctx.request_repaint();
+    }
+}
+
+/// Bouton de manette independant de gilrs (input.rs) -> bouton gilrs.
+fn to_gilrs(b: input::PadButton) -> gilrs::Button {
+    use input::PadButton as P;
+    match b {
+        P::East => gilrs::Button::East,
+        P::South => gilrs::Button::South,
+        P::West => gilrs::Button::West,
+        P::Select => gilrs::Button::Select,
+        P::Start => gilrs::Button::Start,
+        P::DPadUp => gilrs::Button::DPadUp,
+        P::DPadDown => gilrs::Button::DPadDown,
+        P::DPadLeft => gilrs::Button::DPadLeft,
+        P::DPadRight => gilrs::Button::DPadRight,
     }
 }
 
