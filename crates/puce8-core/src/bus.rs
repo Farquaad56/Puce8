@@ -5,7 +5,7 @@ use crate::apu::Apu;
 use crate::cartridge::{Cartridge, RomError};
 use crate::controller::Controller;
 use crate::cpu::CpuBus;
-use crate::dma::{OamDma, GET_PARITY};
+use crate::dma::{DmcDma, OamDma, GET_PARITY};
 use crate::mapper::{create_mapper, Mapper, Mirroring};
 use crate::ppu::Ppu;
 
@@ -23,6 +23,10 @@ pub struct Bus {
     pub cpu_cycles: u64,
     /// DMA OAM en cours (E16b) : vole des cycles au CPU apres une ecriture $4014.
     pub dma: OamDma,
+    /// DMC DMA (E33b1) : lecture d'un octet d'echantillon, prioritaire sur l'OAM DMA.
+    pub dmc_dma: DmcDma,
+    /// E33b1 : l'OAM DMA saute un cycle (son get a ete pris par la DMC).
+    oam_pause: bool,
     /// Manettes standard $4016/$4017 (E24a2).
     pub controller: Controller,
     /// APU $4000-$4017 (E30c1).
@@ -38,23 +42,78 @@ impl Bus {
             open_bus: 0,
             cpu_cycles: 0,
             dma: OamDma::Idle,
+            dmc_dma: DmcDma::Idle,
+            oam_pause: false,
             controller: Controller::new(),
             apu: Apu::new(),
         }
     }
 
-    /// Vrai si la DMA prend ce cycle a la place du CPU.
+    /// Vrai si une DMA (DMC ou OAM) prend ce cycle a la place du CPU (E16b + E33b1).
     pub fn dma_halts_cpu(&self, cpu_next_is_read: bool) -> bool {
-        match self.dma {
+        let dmc = match self.dmc_dma {
+            DmcDma::Idle => false,
+            DmcDma::Requested(_) => cpu_next_is_read, // l'arret attend une lecture du CPU
+            _ => true,
+        };
+        let oam = match self.dma {
             OamDma::Idle => false,
             OamDma::Requested(_) => cpu_next_is_read, // l'arret attend une lecture du CPU
             _ => true,
+        };
+        dmc || oam
+    }
+
+    /// Un cycle de DMA (E33b1). La DMC avance d'abord ; si elle prend un get pendant que
+    /// l'OAM DMA allait lire, l'OAM saute ce get et le put qui suit (2 cycles par octet DMC).
+    pub fn dma_tick(&mut self) {
+        let dmc_get = matches!(self.dmc_dma, DmcDma::Get(_));
+        self.dmc_dma_tick();
+        if dmc_get && matches!(self.dma, OamDma::Get { .. }) {
+            self.oam_pause = true;
+            return;
+        }
+        if self.oam_pause {
+            self.oam_pause = false;
+            return;
+        }
+        self.oam_dma_tick();
+    }
+
+    /// Un cycle de la DMC DMA : arret -> factice -> [alignement] -> get.
+    fn dmc_dma_tick(&mut self) {
+        let c = self.cpu_cycles;
+        self.dmc_dma = match self.dmc_dma {
+            DmcDma::Idle => DmcDma::Idle,
+            DmcDma::Requested(a) => DmcDma::Dummy(a), // ce cycle = arret
+            DmcDma::Dummy(a) => {
+                if (c + 1) % 2 == GET_PARITY {
+                    DmcDma::Get(a)
+                } else {
+                    DmcDma::Align(a)
+                }
+            }
+            DmcDma::Align(a) => DmcDma::Get(a),
+            DmcDma::Get(a) => {
+                let v = self.read(a);
+                self.apu.dmc_dma_complete(v);
+                DmcDma::Idle
+            }
+        };
+    }
+
+    /// Demande une DMC DMA si le lecteur du DMC attend un octet (appele a chaque cycle par Nes::tick, E33b2).
+    pub fn poll_dmc_dma(&mut self) {
+        if self.dmc_dma == DmcDma::Idle {
+            if let Some(a) = self.apu.dmc_dma_request() {
+                self.dmc_dma = DmcDma::Requested(a);
+            }
         }
     }
 
     /// Un cycle de DMA. `c = self.cpu_cycles` est le numero du cycle en cours
     /// (Nes::tick l'incremente APRES). Transitions EXACTES :
-    pub fn dma_tick(&mut self) {
+    fn oam_dma_tick(&mut self) {
         let c = self.cpu_cycles;
         let is_get = |n: u64| n % 2 == GET_PARITY;
         self.dma = match self.dma {
@@ -349,5 +408,54 @@ mod tests {
         assert_eq!(bus.read(0x4015) & 0x0F, 0x09);
         bus.write(0x4015, 0x00);
         assert_eq!(bus.read(0x4015) & 0x0F, 0);
+    }
+
+    // ---------- E33b1 : DMC DMA ----------
+
+    /// DMC active ($C000, 17 octets), buffer vide : une DMC DMA est demandee.
+    fn dmc_demande(bus: &mut Bus) {
+        bus.write(0x4013, 0x01); // 17 octets
+        bus.write(0x4015, 0x10); // DMC active : lecteur redemarre
+        bus.poll_dmc_dma();
+    }
+
+    #[test]
+    fn dmc_dma_seule() {
+        // Depart sur un cycle get (pair) : 3 cycles ; sur un cycle put (impair) : 4 cycles.
+        for (depart, attendu) in [(10u64, 3u64), (11, 4)] {
+            let mut bus = Bus::for_test_with_prg(&[0xA9]);
+            bus.cpu_cycles = depart;
+            dmc_demande(&mut bus);
+            assert_eq!(bus.dmc_dma, DmcDma::Requested(0xC000));
+            assert_eq!(run_dma(&mut bus), attendu);
+            assert!(bus.apu.dmc.buffer.is_some());
+            assert_eq!(bus.apu.dmc.remaining, 16);
+            bus.poll_dmc_dma();
+            assert_eq!(bus.dmc_dma, DmcDma::Idle); // buffer plein : pas de nouvelle demande
+        }
+    }
+
+    #[test]
+    fn dmc_pendant_oam() {
+        let prepare = |dmc: bool| {
+            let mut bus = Bus::for_test_with_prg(&[0xA9]);
+            for i in 0..=255u8 {
+                bus.ram[0x200 + usize::from(i)] = i;
+            }
+            bus.cpu_cycles = 10;
+            bus.write(0x4014, 0x02);
+            if dmc {
+                dmc_demande(&mut bus);
+            }
+            bus
+        };
+        let base = run_dma(&mut prepare(false));
+        let mut bus = prepare(true);
+        let n = run_dma(&mut bus);
+        for i in 0..=255usize {
+            assert_eq!(bus.ppu.oam[i], i as u8); // copie OAM correcte
+        }
+        assert_eq!(n, base + 2); // le get pris par la DMC coute 2 cycles a l'OAM
+        assert!(bus.apu.dmc.buffer.is_some());
     }
 }

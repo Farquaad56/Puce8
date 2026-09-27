@@ -27,3 +27,19 @@ impl OamDma {
         *self = OamDma::Requested(page);
     }
 }
+
+/// Machine a etats de la DMC DMA (E33b1) : arret, factice, alignement eventuel, get (3 ou 4 cycles).
+// SIMPLIFICATION: pas de distinction entre DMA de chargement et de rechargement (revu en E36).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DmcDma {
+    /// Aucune DMC DMA en cours.
+    Idle,
+    /// Octet demande a cette adresse : l'arret attend un cycle de lecture du CPU.
+    Requested(u16),
+    /// Cycle factice (aucun acces).
+    Dummy(u16),
+    /// Cycle d'alignement (aucun acces) : le cycle suivant sera un get.
+    Align(u16),
+    /// Cycle get : lecture de l'octet, puis `Apu::dmc_dma_complete`.
+    Get(u16),
+}
