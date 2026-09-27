@@ -244,6 +244,9 @@ impl Ppu {
         if self.oam_clear_read() {
             return 0xFF; // E20a2 : effacement de l'OAM secondaire en cours
         }
+        if let Some(value) = self.oam_eval_read() {
+            return value; // E20b3 : octet en cours d'evaluation
+        }
         let value = self.oam[usize::from(self.regs.oam_addr)];
         if self.regs.oam_addr % 4 == 2 {
             value & 0xE3
@@ -340,9 +343,14 @@ impl Ppu {
             return;
         }
         if r == 4 {
-            // $2004 : ecrit oam[oam_addr] puis increment (wrap a 256).
-            self.oam[usize::from(self.regs.oam_addr)] = v;
-            self.regs.oam_addr = self.regs.oam_addr.wrapping_add(1);
+            if self.oam_busy() {
+                // E20b3 : pendant le rendu, pas d'ecriture, mais oam_addr += 4.
+                self.regs.oam_addr = self.regs.oam_addr.wrapping_add(4);
+            } else {
+                // $2004 : ecrit oam[oam_addr] puis increment (wrap a 256).
+                self.oam[usize::from(self.regs.oam_addr)] = v;
+                self.regs.oam_addr = self.regs.oam_addr.wrapping_add(1);
+            }
         }
         // Deuxieme ecriture $2006 : notifier le mapper avec la nouvelle adresse v.
         let second_2006 = r == 6 && self.regs.w;

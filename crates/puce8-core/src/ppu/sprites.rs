@@ -138,6 +138,11 @@ impl SpriteEval {
         }
     }
 
+    /// Octet sur le bus interne de l'evaluation (dernier octet lu dans l'OAM) : lu par `$2004` (E20b3).
+    pub fn bus_value(&self) -> u8 {
+        self.latch
+    }
+
     /// Sprite suivant ; apres le 64e, l'evaluation est terminee.
     fn next_sprite(&mut self) {
         self.n += 1;
@@ -184,6 +189,23 @@ impl Ppu {
             0x20
         } else {
             0
+        }
+    }
+
+    /// Vrai si l'OAM est occupee par le rendu (E20b3) : rendu actif, lignes 0-239 et 261.
+    /// Une ecriture `$2004` n'ecrit alors rien et fait seulement `oam_addr += 4`.
+    pub(super) fn oam_busy(&self) -> bool {
+        self.regs.mask & 0x18 != 0 && (self.line <= 239 || self.line == 261)
+    }
+
+    /// Lecture `$2004` pendant l'evaluation (lignes 0-239, points 65-256, rendu actif) :
+    /// renvoie l'octet que l'evaluation vient de lire dans l'OAM (E20b3).
+    /// SIMPLIFICATION: points 257-320 (fetchs des sprites) non geres ici, revu en E21/E36.
+    pub(super) fn oam_eval_read(&self) -> Option<u8> {
+        if self.regs.mask & 0x18 != 0 && self.line <= 239 && (65..=256).contains(&self.point) {
+            Some(self.sprite_eval.bus_value())
+        } else {
+            None
         }
     }
 
@@ -417,5 +439,38 @@ mod tests {
         assert!(ppu.sprite_overflow);
         jusqu_a(&mut ppu, &mut bus, (261, 1));
         assert!(!ppu.sprite_overflow);
+    }
+
+    // ---------- E20b3 : $2004 pendant le rendu ----------
+
+    #[test]
+    fn ecriture_2004_rendu() {
+        let (mut ppu, mut bus) = ppu_ligne(10);
+        jusqu_a(&mut ppu, &mut bus, (10, 100));
+        ppu.regs.oam_addr = 0x10;
+        let avant = ppu.oam;
+        ppu.cpu_write_register(4, 0xAB, &mut (*bus.mapper));
+        assert_eq!(ppu.regs.oam_addr, 0x14); // + 4
+        assert_eq!(ppu.oam, avant); // aucune ecriture
+        ppu.regs.mask = 0; // rendu coupe : ecriture normale
+        ppu.cpu_write_register(4, 0xAB, &mut (*bus.mapper));
+        assert_eq!(ppu.oam[0x14], 0xAB);
+        assert_eq!(ppu.regs.oam_addr, 0x15);
+    }
+
+    #[test]
+    fn ecriture_2004_vblank_normale() {
+        let (mut ppu, mut bus) = ppu_ligne(245); // VBlank : l'OAM est libre
+        ppu.regs.oam_addr = 0x20;
+        ppu.cpu_write_register(4, 0x77, &mut (*bus.mapper));
+        assert_eq!(ppu.oam[0x20], 0x77);
+    }
+
+    #[test]
+    fn lecture_2004_evaluation() {
+        let (mut ppu, mut bus) = ppu_ligne(10);
+        ppu.oam[0] = 0x33; // Y du sprite 0, lu au point 65
+        jusqu_a(&mut ppu, &mut bus, (10, 65));
+        assert_eq!(ppu.cpu_read_register(4, &mut (*bus.mapper)), 0x33);
     }
 }
