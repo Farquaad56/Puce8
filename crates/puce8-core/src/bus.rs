@@ -2,6 +2,7 @@
 // wiki: Open_bus ; wiki: NES_memory_map
 
 use crate::cartridge::{Cartridge, RomError};
+use crate::controller::Controller;
 use crate::cpu::CpuBus;
 use crate::dma::{OamDma, GET_PARITY};
 use crate::mapper::{create_mapper, Mapper, Mirroring};
@@ -21,6 +22,8 @@ pub struct Bus {
     pub cpu_cycles: u64,
     /// DMA OAM en cours (E16b) : vole des cycles au CPU apres une ecriture $4014.
     pub dma: OamDma,
+    /// Manettes standard $4016/$4017 (E24a2).
+    pub controller: Controller,
 }
 
 impl Bus {
@@ -32,6 +35,7 @@ impl Bus {
             open_bus: 0,
             cpu_cycles: 0,
             dma: OamDma::Idle,
+            controller: Controller::new(),
         }
     }
 
@@ -116,6 +120,12 @@ impl CpuBus for Bus {
                 self.open_bus = value;
                 value
             }
+            // E24a2 : manettes ; bits 5-7 = open bus, puis l'octet lu devient l'open bus.
+            0x4016 | 0x4017 => {
+                let value = self.controller.read(usize::from(addr & 1), self.open_bus);
+                self.open_bus = value;
+                value
+            }
             // $4000-$401F : APU (stubs).
             0x4000..=0x401F => self.open_bus,
             // $4020-$FFFF : cartouche.
@@ -146,6 +156,11 @@ impl CpuBus for Bus {
                 self.dma.request_oam(value);
                 self.open_bus = value;
             }
+            // E24a2 : strobe des deux manettes ($4017 en ecriture = APU, plus tard).
+            0x4016 => {
+                self.controller.write(value);
+                self.open_bus = value;
+            }
             // $4000-$401F : APU (stubs).
             0x4000..=0x401F => {
                 self.open_bus = value;
@@ -163,6 +178,7 @@ impl CpuBus for Bus {
             0x0000..=0x1FFF => self.ram[usize::from(addr & 0x07FF)],
             // $2000-$3FFF : PPU (miroir sur les 11 bits bas).
             0x2000..=0x3FFF => self.ppu.cpu_peek_register(addr & 7),
+            0x4016 | 0x4017 => self.controller.peek(usize::from(addr & 1), self.open_bus),
             // $4000-$401F : APU (stubs).
             0x4000..=0x401F => self.open_bus,
             _ => self.mapper.cpu_peek(addr).unwrap_or(self.open_bus),

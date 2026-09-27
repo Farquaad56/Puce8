@@ -76,6 +76,11 @@ impl Nes {
         self.cpu.reset();
     }
 
+    /// Boutons d'une manette (port 0 = $4016, port 1 = $4017), poses par le frontend (E24a2).
+    pub fn set_buttons(&mut self, port: usize, buttons: u8) {
+        self.bus.controller.set_buttons(port, buttons);
+    }
+
     /// Lecture directe en memoire (pour les tests).
     pub fn peek(&self, addr: u16) -> u8 {
         self.bus.peek(addr)

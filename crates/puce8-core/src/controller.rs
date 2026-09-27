@@ -170,4 +170,58 @@ mod tests {
         assert_eq!(c.read(0, 0x5F), 0x41);
         assert_eq!(c.read(0, 0x40), 0x40); // B non presse
     }
+
+    // ---------- E24a2 : manettes branchees sur le bus et le CPU ----------
+
+    use crate::cpu::CpuBus;
+    use crate::nes::Nes;
+
+    /// ROM iNES : PRG-ROM 16 Ko de NOP, `code` en $8000, vecteur RESET = $8000 ; reset joue (7 cycles).
+    fn machine(code: &[u8]) -> Nes {
+        let mut rom = vec![0x4E, 0x45, 0x53, 0x1A, 0x01, 0x00];
+        rom.extend_from_slice(&[0; 10]);
+        let mut prg = vec![0xEA; 16384];
+        prg[..code.len()].copy_from_slice(code);
+        prg[0x3FFC..0x3FFE].copy_from_slice(&[0x00, 0x80]);
+        rom.extend(prg);
+        let mut nes = Nes::from_rom(&rom).unwrap();
+        for _ in 0..7 {
+            nes.tick();
+        }
+        nes
+    }
+
+    #[test]
+    fn bus_ordre_bits() {
+        let mut nes = machine(&[]);
+        nes.set_buttons(0, BTN_A | BTN_START);
+        nes.bus.write(0x4016, 1);
+        nes.bus.write(0x4016, 0);
+        let bits: Vec<u8> = (0..9).map(|_| nes.bus.read(0x4016) & 1).collect();
+        assert_eq!(bits, vec![1, 0, 0, 1, 0, 0, 0, 0, 1]);
+    }
+
+    #[test]
+    fn bus_manette_2() {
+        let mut nes = machine(&[]);
+        nes.set_buttons(1, BTN_B);
+        nes.bus.write(0x4016, 1);
+        nes.bus.write(0x4016, 0);
+        assert_eq!(nes.bus.read(0x4017) & 1, 0); // A
+        assert_eq!(nes.bus.read(0x4017) & 1, 1); // B
+        assert_eq!(nes.peek(0x4017) & 1, 0); // Select, sans decalage
+    }
+
+    #[test]
+    fn open_bus_bits() {
+        // LDA $4016 execute par le CPU : bits 5-7 = $40 & 0xE0 (octet haut de l'operande).
+        let mut nes = machine(&[
+            0xA9, 0x01, 0x8D, 0x16, 0x40, 0xA9, 0x00, 0x8D, 0x16, 0x40, 0xAD, 0x16, 0x40,
+        ]);
+        nes.set_buttons(0, BTN_A);
+        for _ in 0..5 {
+            nes.step_instruction(); // LDA #1 ; STA $4016 ; LDA #0 ; STA $4016 ; LDA $4016
+        }
+        assert_eq!(nes.cpu.a, 0x41);
+    }
 }
