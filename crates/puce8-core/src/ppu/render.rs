@@ -215,4 +215,72 @@ mod tests {
         ppu.cpu_write_register(7, 0xAB, &mut chr);
         assert_eq!(ppu.regs.v, 0x1026);
     }
+
+    // ---------- E22b2 : rendu coupe en cours d'image ----------
+
+    /// Mapper qui compte les acces memoire PPU notifies.
+    struct Compteur {
+        acces: usize,
+    }
+
+    impl Mapper for Compteur {
+        fn cpu_read(&mut self, _addr: u16) -> Option<u8> {
+            None
+        }
+        fn cpu_peek(&self, _addr: u16) -> Option<u8> {
+            None
+        }
+        fn cpu_write(&mut self, _addr: u16, _value: u8) {}
+        fn ppu_read(&mut self, _addr: u16) -> u8 {
+            0
+        }
+        fn ppu_write(&mut self, _addr: u16, _value: u8) {}
+        fn ppu_peek(&self, _addr: u16) -> u8 {
+            0
+        }
+        fn mirroring(&self) -> Mirroring {
+            Mirroring::Horizontal
+        }
+        fn notify_ppu_address(&mut self, _addr: u16) {
+            self.acces += 1;
+        }
+    }
+
+    #[test]
+    fn rendu_coupe_milieu() {
+        let mut m = Compteur { acces: 0 };
+        let mut ppu = Ppu::new();
+        ppu.regs.mask = 0x18;
+        ppu.line = 100;
+        ppu.point = 0;
+        while ppu.position() != (100, 50) {
+            ppu.tick(&mut m);
+        }
+        assert!(m.acces > 0); // fetchs de fond pendant les points 1-50
+        ppu.regs.mask = 0x00; // rendu coupe en (100, 50)
+        let (acces, v) = (m.acces, ppu.regs.v);
+        while ppu.position() != (100, 340) {
+            ppu.tick(&mut m);
+        }
+        assert_eq!(m.acces, acces); // plus aucun fetch (fond ni sprites) sur la ligne
+        assert_eq!(ppu.regs.v, v); // plus d'increment de v (ni coarse X, ni Y, ni copie)
+    }
+
+    #[test]
+    fn rendu_reactive_milieu() {
+        let mut m = Compteur { acces: 0 };
+        let mut ppu = Ppu::new();
+        ppu.line = 100;
+        ppu.point = 0;
+        while ppu.position() != (100, 50) {
+            ppu.tick(&mut m);
+        }
+        assert_eq!(m.acces, 0); // rendu coupe : aucun acces
+        ppu.regs.mask = 0x18; // rendu reactive au point 50
+        ppu.tick(&mut m);
+        while ppu.position() != (100, 60) {
+            ppu.tick(&mut m);
+        }
+        assert!(m.acces > 0); // les fetchs reprennent immediatement
+    }
 }
