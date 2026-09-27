@@ -107,9 +107,15 @@ impl Mmc1 {
 
     /// Banque de 16 Ko vue en $8000 (`haut` = false) ou en $C000 (`haut` = true).
     fn prg_bank(&self, haut: bool) -> usize {
+        // SUROM (512 Ko) : le bit 4 de CHR0 choisit la moitie de 256 Ko (E26b3).
+        let base = if self.prg_rom.len() > 256 * 1024 {
+            usize::from(self.chr0 & 0x10)
+        } else {
+            0
+        };
         let bank = usize::from(self.prg & 0x0F);
-        let last = self.nb_prg_banks() - 1;
-        match (self.control >> 2) & 3 {
+        let last = (self.nb_prg_banks() - 1).min(15);
+        let b = match (self.control >> 2) & 3 {
             0 | 1 => (bank & !1) | usize::from(haut), // 32 Ko
             2 => {
                 if haut {
@@ -125,7 +131,8 @@ impl Mmc1 {
                     bank
                 }
             }
-        }
+        };
+        base | b
     }
 
     fn prg_read(&self, addr: u16) -> Option<u8> {
@@ -482,5 +489,18 @@ mod tests {
         assert_eq!(m.cpu_read(0x6001), Some(2));
         assert_eq!(m.battery_ram().map(|r| r.len()), Some(8 * 1024));
         assert!(Mmc1::new(cart(8)).battery_ram().is_none());
+    }
+
+    // ---------- E26b3 ----------
+
+    #[test]
+    fn surom() {
+        let mut m = Mmc1::new(cart(32)); // 512 Ko
+        assert_eq!(m.cpu_read(0xC000), Some(15)); // moitie basse : derniere banque = 15
+        write_serial(&mut m, 0xA000, 0x10); // CHR0 bit 4 = 1 : moitie haute
+        assert_eq!(m.cpu_read(0xC000), Some(31));
+        assert_eq!(m.cpu_read(0x8000), Some(16));
+        write_serial(&mut m, 0xE000, 3);
+        assert_eq!(m.cpu_read(0x8000), Some(19));
     }
 }
