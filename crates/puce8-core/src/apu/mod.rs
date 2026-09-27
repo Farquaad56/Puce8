@@ -5,6 +5,7 @@
 pub mod envelope;
 pub mod frame_counter;
 pub mod length;
+pub mod noise;
 pub mod pulse;
 pub mod sweep;
 pub mod triangle;
