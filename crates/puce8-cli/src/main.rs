@@ -1,5 +1,6 @@
 mod capture;
 mod harness;
+mod input_script;
 mod suite;
 
 use std::env;
@@ -82,6 +83,7 @@ fn do_run(args: &[String]) {
 
     let rest = &args[3..];
     let mut frames: Option<u32> = None;
+    let mut script: input_script::InputScript = Vec::new(); // E24b3 : --input
     let mut trace_path: Option<String> = None;
     let mut screenshot_path: Option<String> = None;
     let mut print_hash = false;
@@ -95,6 +97,11 @@ fn do_run(args: &[String]) {
     let mut i = 0;
     while i < rest.len() {
         match rest[i].as_str() {
+            "--input" => {
+                script = input_script::parse_input_script(&parse_next(rest, i))
+                    .unwrap_or_else(|e| die(2, &format!("bad --input: {e}")));
+                i += 1;
+            }
             "--frames" => {
                 frames = Some(
                     parse_next(rest, i)
@@ -189,9 +196,7 @@ fn do_run(args: &[String]) {
         fs::write(tp, lines.join("\n"))
             .unwrap_or_else(|e| die(2, &format!("cannot write {}: {}", tp, e)));
     } else {
-        for _ in 0..frames {
-            nes.run_frame();
-        }
+        input_script::run_frames(&mut nes, frames, &script); // E24b3 : script d'entrees
     }
 
     let hash = Some(format!("{:x}", puce8_core::util::fnv1a64(&bytes)));
