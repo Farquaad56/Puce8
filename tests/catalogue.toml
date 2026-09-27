@@ -496,6 +496,7 @@ chemin = "mmc3_test_2/rom_singles/4-scanline_timing.nes"
 protocole = "blargg6000"
 phase = "mapper"
 etape = "E28"
+attendu = "echec"
 
 [[rom]]
 chemin = "mmc3_test_2/rom_singles/5-MMC3.nes"
