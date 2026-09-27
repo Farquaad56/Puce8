@@ -5,12 +5,17 @@
 pub mod frame_counter;
 pub mod length;
 
+use frame_counter::FrameCounter;
 use length::LengthCounter;
 
 /// APU.
 pub struct Apu {
     /// Compteurs de longueur : 0 = pulse 1, 1 = pulse 2, 2 = triangle, 3 = bruit.
     pub lengths: [LengthCounter; 4],
+    /// Frame counter (E30b2).
+    pub frame: FrameCounter,
+    /// Cycles CPU depuis la mise sous tension.
+    cycle: u64,
 }
 
 impl Default for Apu {
@@ -28,17 +33,34 @@ impl Apu {
     pub fn new() -> Self {
         Apu {
             lengths: [LengthCounter::default(); 4],
+            frame: FrameCounter::new(),
+            cycle: 0,
         }
     }
 
-    /// Un cycle CPU (frame counter : E30b2).
-    pub fn tick(&mut self) {}
+    /// Un cycle CPU : timers des canaux, puis frame counter.
+    pub fn tick(&mut self) {
+        self.cycle += 1;
+        let ev = self.frame.tick();
+        if ev.half {
+            self.clock_half();
+        }
+    }
+
+    /// Horloge "demi" : compteurs de longueur (sweeps : E31b2).
+    fn clock_half(&mut self) {
+        for l in &mut self.lengths {
+            l.clock();
+        }
+    }
 
     /// Ecriture CPU en $4000-$4013, $4015, $4017.
     pub fn write_register(&mut self, addr: u16, v: u8) {
         self.write_length(addr, v);
-        if addr == 0x4015 {
-            self.write_status(v);
+        match addr {
+            0x4015 => self.write_status(v),
+            0x4017 => self.frame.write(v, self.cycle.is_multiple_of(2)),
+            _ => {}
         }
     }
 
@@ -77,9 +99,9 @@ impl Apu {
         self.status_bits()
     }
 
-    /// Ligne IRQ de l'APU (IRQ de trame : E30b2).
+    /// Ligne IRQ de l'APU (niveau) : IRQ de trame (DMC : E33).
     pub fn irq_line(&self) -> bool {
-        false
+        self.frame.irq
     }
 
     /// Reset a chaud : $4015 = 0 (le reste en E35).
@@ -91,6 +113,12 @@ impl Apu {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn ticks(apu: &mut Apu, n: u32) {
+        for _ in 0..n {
+            apu.tick();
+        }
+    }
 
     #[test]
     fn registres_longueur() {
@@ -116,5 +144,25 @@ mod tests {
         assert!(!apu.lengths[0].halt);
         apu.write_register(0x4004, 0x00);
         assert!(!apu.lengths[1].halt);
+    }
+
+    // ---------- E30b2 ----------
+
+    #[test]
+    fn demi_trame_longueur() {
+        let mut apu = Apu::new();
+        apu.write_register(0x4015, 0x01);
+        apu.write_register(0x4003, 0x08); // 254
+        ticks(&mut apu, 29830);
+        assert_eq!(apu.lengths[0].counter, 252); // 2 demi-trames
+    }
+
+    #[test]
+    fn irq_trame() {
+        let mut apu = Apu::new();
+        ticks(&mut apu, 29828);
+        assert!(apu.irq_line());
+        apu.write_register(0x4017, 0x40); // I = 1 : efface
+        assert!(!apu.irq_line());
     }
 }
