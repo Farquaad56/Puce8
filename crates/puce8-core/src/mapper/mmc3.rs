@@ -28,6 +28,9 @@ pub struct Mmc3 {
     irq_reload: bool,
     irq_enabled: bool,
     irq: bool,
+    /// E28a2 : filtre de A12 (etat de A12, cycles CPU passes avec A12 bas).
+    a12: bool,
+    low_cycles: u8,
 }
 
 impl Mmc3 {
@@ -47,6 +50,8 @@ impl Mmc3 {
             irq_reload: false,
             irq_enabled: false,
             irq: false,
+            a12: false,
+            low_cycles: 3, // A12 bas "depuis longtemps" : le 1er front montant compte
         }
     }
 
@@ -222,6 +227,24 @@ impl Mapper for Mmc3 {
 
     fn mirroring(&self) -> Mirroring {
         self.mirroring
+    }
+
+    /// E28a2 : filtre de A12, un front montant ne compte qu'apres >= 3 cycles CPU avec A12 bas.
+    fn notify_ppu_address(&mut self, addr: u16) {
+        let a12 = addr & 0x1000 != 0;
+        if a12 && !self.a12 && self.low_cycles >= 3 {
+            self.clock_counter();
+        }
+        if a12 {
+            self.low_cycles = 0;
+        }
+        self.a12 = a12;
+    }
+
+    fn cpu_cycle(&mut self) {
+        if !self.a12 {
+            self.low_cycles = self.low_cycles.saturating_add(1);
+        }
     }
 
     fn irq_pending(&self) -> bool {
@@ -433,5 +456,44 @@ mod tests {
             m.clock_counter();
         }
         assert!(!m.irq_pending()); // jamais activee ($E001 non ecrit)
+    }
+
+    // ---------- E28a2 ----------
+
+    /// Latch = 5, rechargement demande : le 1er clock donne 5, le 2e 4.
+    fn mmc3_latch5() -> Mmc3 {
+        let mut m = Mmc3::new(cart(16, 8));
+        m.cpu_write(0xC000, 5);
+        m.cpu_write(0xC001, 0);
+        m
+    }
+
+    #[test]
+    fn filtre_a12() {
+        let mut m = mmc3_latch5();
+        m.notify_ppu_address(0x0000);
+        m.notify_ppu_address(0x1000); // front montant : clock (compteur = 5)
+        m.notify_ppu_address(0x0000);
+        m.notify_ppu_address(0x1000); // sans cycle CPU A12 bas : filtre
+        assert_eq!(m.counter(), 5);
+    }
+
+    #[test]
+    fn filtre_ok() {
+        let mut m = mmc3_latch5();
+        m.notify_ppu_address(0x1000); // clock (5)
+        m.notify_ppu_address(0x0000);
+        m.cpu_cycle();
+        m.cpu_cycle();
+        m.notify_ppu_address(0x1000); // 2 cycles seulement : filtre
+        assert_eq!(m.counter(), 5);
+        m.notify_ppu_address(0x0000);
+        for _ in 0..3 {
+            m.cpu_cycle();
+        }
+        m.notify_ppu_address(0x1FF0); // 3 cycles : clock (4)
+        assert_eq!(m.counter(), 4);
+        m.notify_ppu_address(0x1000); // A12 reste haut : pas de front
+        assert_eq!(m.counter(), 4);
     }
 }

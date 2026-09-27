@@ -1,5 +1,19 @@
+# Compilation
 target/
-tests/roms/
+
+# Sorties temporaires (logs, captures, WAV, rapports)
 out/
+
+# Sauvegardes de jeux
 *.sav
+
+# IDE
 .idea/
+
+# Environnement de developpement local : inutile pour compiler.
+# ROM de test et catalogue : voir ROMS_TEST.md pour les recuperer.
+tests/
+# Scripts de verification (fmt + clippy + tests) : voir ROMS_TEST.md, section "Verification".
+scripts/
+# Journal de l'agent codeur.
+notes/

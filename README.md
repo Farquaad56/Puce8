@@ -8,6 +8,10 @@ Puce8 — émulateur NES en Rust (cycle-exact).
 cargo build --workspace
 ```
 
-Vérification complète (fmt + clippy + tests) : `scripts/verifier.ps1` (Windows) ou `scripts/verifier.sh`.
+Aucun fichier de `tests/`, `scripts/` ou `notes/` n'est nécessaire pour compiler (ces dossiers sont ignorés par git).
 
-Voir `../Docs_Implementation/00_LISEZMOI.md` pour la documentation.
+## Tests et ROM de test
+
+Voir [ROMS_TEST.md](ROMS_TEST.md) : où placer les ROM de test, comment les télécharger, et comment lancer la vérification (fmt + clippy + tests).
+
+Voir `../Docs_Implementation/00_LISEZMOI.md` pour la documentation d'implémentation.
