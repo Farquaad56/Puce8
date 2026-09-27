@@ -3,6 +3,7 @@ use std::path::Path;
 
 use crate::die;
 use crate::harness;
+use crate::input_script;
 use crate::parse_next;
 use puce8_core::nes::Nes;
 use serde::Deserialize;
@@ -26,6 +27,9 @@ struct RomEntry {
     /// Adresse du resultat pour le protocole blarggF8 (defaut $F8).
     #[serde(default)]
     result_addr: Option<u16>,
+    /// Script d'entrees de la manette 1 (E24b4), meme syntaxe que `run --input`.
+    #[serde(default)]
+    entrees: Option<String>,
 }
 
 #[derive(Debug)]
@@ -96,9 +100,28 @@ fn run_entry(entry: &RomEntry, roms_dir: &Path) -> SuiteResult {
         }
         "image" => {
             let fr = entry.frames.unwrap_or(35);
+            // E24b4 : script d'entrees optionnel (champ `entrees` du catalogue).
+            let script = match entry
+                .entrees
+                .as_deref()
+                .map(input_script::parse_input_script)
+            {
+                None => Vec::new(),
+                Some(Ok(s)) => s,
+                Some(Err(e)) => {
+                    return SuiteResult {
+                        rom: entry.chemin.clone(),
+                        protocole: entry.protocole.clone(),
+                        resultat: "ERREUR_ROM".to_string(),
+                        detail: format!("entrees invalides : {e}"),
+                        obligatoire: false,
+                    };
+                }
+            };
             harness::run_image(
                 &mut nes,
                 fr,
+                &script,
                 entry.hash_attendu.as_deref().unwrap_or("<aucun>"),
             )
         }

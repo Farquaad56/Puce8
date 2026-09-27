@@ -142,15 +142,12 @@ pub fn run_blargg_f8(nes: &mut Nes, frames: u32, result_addr: u16) -> Resultat {
 
 /// Protocole image : joue `frames` images puis compare le hash du framebuffer
 /// (puce8_core::util::frame_hash) a `hash_attendu`.
-pub fn run_image(nes: &mut Nes, frames: u32, hash_attendu: &str) -> Resultat {
+pub fn run_image(nes: &mut Nes, frames: u32, script: &[(u32, u8)], hash_attendu: &str) -> Resultat {
     let rom = "unknown".to_string(); // caller should set this via wrapper
-    let mut total_cycles = 0u64;
 
-    for _ in 0..frames {
-        let start = nes.bus.cpu_cycles;
-        nes.run_frame();
-        total_cycles += nes.bus.cpu_cycles - start;
-    }
+    let start = nes.bus.cpu_cycles;
+    crate::input_script::run_frames(nes, frames, script); // E24b4 : entrees (vide = aucune)
+    let total_cycles = nes.bus.cpu_cycles - start;
 
     let h = format!(
         "{:x}",
@@ -340,7 +337,7 @@ mod tests {
             puce8_core::util::frame_hash(&nes.bus.ppu.framebuffer)
         );
 
-        let r = run_image(&mut nes, 1, h.as_str());
+        let r = run_image(&mut nes, 1, &[], h.as_str());
         assert_eq!(r.resultat, "REUSSI");
         assert_eq!(r.frames, 1);
 
@@ -357,7 +354,7 @@ mod tests {
 
         // Hash attendu different -> ECHEC avec le hash reel dans texte.
         let wrong = format!("{:x}", u64::from_str_radix(&h, 16).unwrap() ^ 1);
-        let r = run_image(&mut nes2, 1, &wrong);
+        let r = run_image(&mut nes2, 1, &[], &wrong);
         assert_eq!(r.resultat, "ECHEC");
         assert!(r.texte.contains(&format!("hash={}", h)));
     }
@@ -388,5 +385,17 @@ mod tests {
         let r = run_blargg_f8(&mut nes, 5, 0xF8);
         assert_eq!(r.resultat, "ECHEC");
         assert_eq!(r.code, 0);
+    }
+
+    #[test]
+    fn run_image_avec_entrees() {
+        // Meme ROM, meme nombre d'images : le hash ne depend pas des entrees si la ROM ne lit pas
+        // la manette ; ici on verifie seulement que le script est accepte et que les images sont jouees.
+        let rom = build_rom(&[0x4C, 0x00, 0x80]);
+        let mut nes = Nes::from_rom(&rom).unwrap();
+        let script = crate::input_script::parse_input_script("0:START").unwrap();
+        let r = run_image(&mut nes, 3, &script, "<aucun>");
+        assert_eq!(r.frames, 3);
+        assert_eq!(nes.bus.controller.ports[0].buttons, 0x08); // Start maintenu
     }
 }
