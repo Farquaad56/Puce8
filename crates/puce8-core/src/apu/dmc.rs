@@ -1,5 +1,5 @@
 //! Canal DMC (E33a1/E33a2) : unite de sortie delta 7 bits et lecteur de memoire.
-//! E33a1 : unite de sortie seulement ; lecteur (dma_request / dma_complete) : E33a2.
+//! Les octets sont lus par la DMC DMA du bus (E33b1) via `dma_request` / `dma_complete`.
 // wiki: APU_DMC
 
 /// Debits NTSC en cycles CPU par bit ($4010 bits 0-3).
@@ -117,6 +117,49 @@ impl Dmc {
     pub fn output(&self) -> u8 {
         self.level
     }
+
+    // ---------- E33a2 : lecteur de memoire ----------
+
+    fn restart(&mut self) {
+        self.current_addr = self.sample_addr;
+        self.remaining = self.sample_len;
+    }
+
+    /// $4015 bit 4 : 0 -> plus rien a lire ; 1 avec 0 octet restant -> redemarrage de l'echantillon.
+    pub fn set_enabled(&mut self, on: bool) {
+        if !on {
+            self.remaining = 0;
+        } else if self.remaining == 0 {
+            self.restart();
+        }
+    }
+
+    /// Adresse a lire : buffer vide et octets restants (sinon None).
+    pub fn dma_request(&self) -> Option<u16> {
+        if self.buffer.is_none() && self.remaining > 0 {
+            Some(self.current_addr)
+        } else {
+            None
+        }
+    }
+
+    /// Octet lu par la DMC DMA : buffer plein, adresse + 1 ($FFFF -> $8000), fin -> boucle ou IRQ.
+    pub fn dma_complete(&mut self, v: u8) {
+        self.buffer = Some(v);
+        self.current_addr = if self.current_addr == 0xFFFF {
+            0x8000
+        } else {
+            self.current_addr + 1
+        };
+        self.remaining = self.remaining.saturating_sub(1);
+        if self.remaining == 0 {
+            if self.looping {
+                self.restart();
+            } else if self.irq_enabled {
+                self.irq = true;
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -164,5 +207,56 @@ mod tests {
             d.clock_output();
         }
         assert_eq!(d.level, 1); // 1 - 2 < 0 : inchange
+    }
+
+    // ---------- E33a2 ----------
+
+    #[test]
+    fn lecteur_demarre() {
+        let mut d = Dmc::new();
+        d.write(0x4012, 0x01);
+        d.write(0x4013, 0x01);
+        assert_eq!(d.dma_request(), None); // pas active
+        d.set_enabled(true);
+        assert_eq!(d.dma_request(), Some(0xC040));
+        d.dma_complete(0x55);
+        assert_eq!(d.buffer, Some(0x55));
+        assert_eq!(d.remaining, 16);
+        assert_eq!(d.dma_request(), None); // buffer plein
+        d.set_enabled(false);
+        assert_eq!(d.remaining, 0);
+    }
+
+    #[test]
+    fn irq_fin() {
+        let mut d = Dmc::new();
+        d.write(0x4010, 0x80); // IRQ activee
+        d.write(0x4013, 0x00); // 1 octet
+        d.set_enabled(true);
+        d.dma_complete(0);
+        assert!(d.irq);
+        d.write(0x4010, 0x00); // I = 0 : efface le drapeau
+        assert!(!d.irq);
+    }
+
+    #[test]
+    fn boucle() {
+        let mut d = Dmc::new();
+        d.write(0x4010, 0xC0); // IRQ + boucle
+        d.write(0x4013, 0x00);
+        d.set_enabled(true);
+        d.dma_complete(0);
+        assert_eq!(d.remaining, 1); // redemarre
+        assert_eq!(d.current_addr, 0xC000);
+        assert!(!d.irq); // pas d'IRQ en boucle
+    }
+
+    #[test]
+    fn wrap_adresse() {
+        let mut d = Dmc::new();
+        d.current_addr = 0xFFFF;
+        d.remaining = 2;
+        d.dma_complete(0);
+        assert_eq!(d.current_addr, 0x8000);
     }
 }
