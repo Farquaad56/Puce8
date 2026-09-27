@@ -23,11 +23,11 @@ pub enum PadButton {
     DPadRight,
 }
 
-/// Clavier (joueur 1) : X = A, Z = B, Backspace = Select, Entree = Start, fleches = croix.
+/// Clavier (joueur 1) : W = A, X = B, Backspace = Select, Entree = Start, fleches = croix.
 pub fn keyboard_buttons(down: impl Fn(Key) -> bool) -> u8 {
     let table = [
-        (Key::X, BTN_A),
-        (Key::Z, BTN_B),
+        (Key::W, BTN_A),
+        (Key::X, BTN_B),
         (Key::Backspace, BTN_SELECT),
         (Key::Enter, BTN_START),
         (Key::ArrowUp, BTN_UP),
@@ -95,7 +95,7 @@ mod tests {
 
     #[test]
     fn clavier() {
-        let b = keyboard_buttons(|k| k == Key::X || k == Key::ArrowRight || k == Key::Enter);
+        let b = keyboard_buttons(|k| k == Key::W || k == Key::ArrowRight || k == Key::Enter);
         assert_eq!(b, BTN_A | BTN_RIGHT | BTN_START);
         assert_eq!(keyboard_buttons(|_| false), 0);
     }
