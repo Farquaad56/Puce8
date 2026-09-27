@@ -78,6 +78,19 @@ impl Ppu {
         u16::from(index) | (u16::from(mask >> 5) << 6)
     }
 
+    /// Increment de `v` apres un acces `$2007` (E22b1).
+    /// Pendant le rendu (rendu actif, lignes 0-239 et 261) : `inc_coarse_x` ET `inc_y` en meme temps
+    /// (le +1/+32 normal n'a pas lieu). Sinon : +1, ou +32 si `ctrl & 0x04`.
+    /// SIMPLIFICATION: l'ecriture va quand meme a l'adresse `v` (revu en E36 si une ROM le demande).
+    pub(super) fn incr_v_2007(&mut self) {
+        if self.rendu_actif() && (self.line <= 239 || self.line == 261) {
+            let v = super::background::inc_coarse_x(self.regs.v);
+            self.regs.v = super::background::inc_y(v);
+        } else {
+            self.regs.incr_v();
+        }
+    }
+
     /// Image courante (256 x 240).
     pub fn frame_buffer(&self) -> &[u16] {
         &self.framebuffer
@@ -170,5 +183,36 @@ mod tests {
     fn gris_et_emphase() {
         let ppu = image(0x0B | 0x20); // gris + emphase rouge
         assert_eq!(ppu.frame_buffer()[10 * 256 + 10], 0x10 | (1 << 6));
+    }
+
+    // ---------- E22b1 : $2007 pendant le rendu ----------
+
+    #[test]
+    fn double_increment_2007() {
+        let mut chr = Chr { mem: [0; 0x2000] };
+        let mut ppu = Ppu::new();
+        ppu.regs.mask = 0x18;
+        ppu.line = 100; // ligne visible, rendu actif
+        ppu.regs.v = 0x1005; // fine Y = 1, coarse X = 5
+        let _ = ppu.cpu_read_register(7, &mut chr);
+        assert_eq!(ppu.regs.v, 0x2006); // coarse X + 1 ET fine Y + 1
+        ppu.cpu_write_register(7, 0xAB, &mut chr);
+        assert_eq!(ppu.regs.v, 0x3007);
+    }
+
+    #[test]
+    fn increment_normal_hors_rendu() {
+        let mut chr = Chr { mem: [0; 0x2000] };
+        let mut ppu = Ppu::new();
+        ppu.regs.mask = 0x18;
+        ppu.line = 245; // VBlank : increment normal
+        ppu.regs.v = 0x1005;
+        let _ = ppu.cpu_read_register(7, &mut chr);
+        assert_eq!(ppu.regs.v, 0x1006);
+        ppu.line = 100;
+        ppu.regs.mask = 0x00; // rendu coupe : increment normal
+        ppu.regs.ctrl = 0x04; // +32
+        ppu.cpu_write_register(7, 0xAB, &mut chr);
+        assert_eq!(ppu.regs.v, 0x1026);
     }
 }

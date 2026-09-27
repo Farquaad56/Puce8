@@ -317,7 +317,7 @@ impl Ppu {
             // Une lecture palette charge aussi ppu_read(v - $1000) dans le buffer.
             let next = if v >= 0x3F00 { v - 0x1000 } else { v };
             self.read_buffer = self.ppu_read(next, mapper);
-            self.regs.incr_v();
+            self.incr_v_2007(); // E22b1 : double increment pendant le rendu
             mapper.notify_ppu_address(self.regs.v);
             return value;
         }
@@ -371,7 +371,7 @@ impl Ppu {
             // $2007 : ecrit la memoire PPU a l'adresse v (io_latch mis a jour), puis increment.
             self.ppu_write(self.regs.v & 0x3FFF, v, mapper);
             self.regs.write(7, v);
-            self.regs.incr_v();
+            self.incr_v_2007(); // E22b1 : double increment pendant le rendu
             mapper.notify_ppu_address(self.regs.v);
             return;
         }
