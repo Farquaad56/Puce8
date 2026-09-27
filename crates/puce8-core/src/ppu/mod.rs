@@ -6,6 +6,7 @@
 // wiki: PPU_scrolling ; wiki: PPU_masks_and_control
 
 pub mod background;
+pub mod open_bus;
 pub mod palette;
 mod peek;
 pub mod registers;
