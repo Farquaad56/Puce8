@@ -20,8 +20,7 @@ fn main() {
             std::process::exit(1);
         })
     });
-    let rom_name = args.rom.as_deref().map(app::rom_label).unwrap_or_default();
-    if let Err(e) = gui::run(nes, rom_name, args.scale) {
+    if let Err(e) = gui::run(nes, args.rom.clone(), args.scale) {
         eprintln!("erreur fenetre : {e}");
         std::process::exit(1);
     }

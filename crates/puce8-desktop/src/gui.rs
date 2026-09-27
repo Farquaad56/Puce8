@@ -1,15 +1,19 @@
 //! Fenetre eframe/egui : ecran, cadence, barre d'etat (E23a2) ; menus, raccourcis,
-//! ouverture de ROM et glisser-deposer (E23a3) ; fenetres de debogage (E23b2/E23b3).
+//! ouverture de ROM et glisser-deposer (E23a3) ; fenetres de debogage (E23b2/E23b3) ;
+//! sauvegardes batterie .sav (E29a3).
 
-use crate::{app, input, viewers};
+use crate::{app, input, sav, viewers};
 use eframe::egui;
 use puce8_core::nes::Nes;
+use puce8_core::util::fnv1a64;
 use std::time::Instant;
 
 /// Etat de l'application de bureau.
 pub struct Puce8App {
     nes: Option<Nes>,
     rom_name: String,
+    /// E29a3 : chemin de la ROM (le .sav est ecrit a cote).
+    rom_path: Option<String>,
     scale: u32,
     acc: f64,
     last: Instant,
@@ -29,18 +33,23 @@ pub struct Puce8App {
     /// E24b2 : manettes (None si gilrs n'a pas pu demarrer) et message d'erreur associe.
     gilrs: Option<gilrs::Gilrs>,
     pad_error: Option<String>,
+    /// E29a3 : hash FNV de la RAM de batterie au dernier chargement/ecriture, et minuteur (60 s).
+    sav_hash: u64,
+    sav_timer: Instant,
 }
 
 impl Puce8App {
-    pub fn new(nes: Option<Nes>, rom_name: String, scale: u32) -> Self {
+    pub fn new(nes: Option<Nes>, rom_path: Option<String>, scale: u32) -> Self {
         // E24b2 : un seul contexte gilrs ; en cas d'echec, clavier seul (pas de panique).
         let (gilrs, pad_error) = match gilrs::Gilrs::new() {
             Ok(g) => (Some(g), None),
             Err(e) => (None, Some(format!("manettes indisponibles : {e}"))),
         };
-        Puce8App {
+        let rom_name = rom_path.as_deref().map(app::rom_label).unwrap_or_default();
+        let mut s = Puce8App {
             nes,
             rom_name,
+            rom_path,
             scale,
             acc: 0.0,
             last: Instant::now(),
@@ -56,6 +65,42 @@ impl Puce8App {
             tilemap: viewers::TilemapViewer::default(),
             gilrs,
             pad_error,
+            sav_hash: 0,
+            sav_timer: Instant::now(),
+        };
+        s.load_sav();
+        s
+    }
+
+    /// E29a3 : charge le .sav de la ROM (s'il existe et a la bonne taille).
+    fn load_sav(&mut self) {
+        let (Some(nes), Some(rom)) = (self.nes.as_mut(), self.rom_path.as_deref()) else {
+            return;
+        };
+        let Some(taille) = nes.battery_ram().map(<[u8]>::len) else {
+            return;
+        };
+        if let Some(data) = sav::load_sav(&sav::sav_path(rom), taille) {
+            nes.load_battery_ram(&data);
+        }
+        self.sav_hash = nes.battery_ram().map_or(0, fnv1a64);
+    }
+
+    /// E29a3 : ecrit le .sav (atomique) si la RAM de batterie a change depuis la derniere fois.
+    fn save_sav(&mut self) {
+        let (Some(nes), Some(rom)) = (self.nes.as_ref(), self.rom_path.as_deref()) else {
+            return;
+        };
+        let Some(ram) = nes.battery_ram() else {
+            return;
+        };
+        let h = fnv1a64(ram);
+        if h == self.sav_hash {
+            return;
+        }
+        match sav::write_sav(&sav::sav_path(rom), ram) {
+            Ok(()) => self.sav_hash = h,
+            Err(e) => eprintln!("sauvegarde impossible : {e}"),
         }
     }
 
@@ -106,7 +151,10 @@ impl Puce8App {
     fn open_rom(&mut self, path: &str) {
         match app::load_rom(path) {
             Ok(nes) => {
+                self.save_sav(); // E29a3 : sauvegarde du jeu precedent
                 self.nes = Some(nes);
+                self.rom_path = Some(path.to_string());
+                self.load_sav();
                 self.rom_name = app::rom_label(path);
                 self.texture = None;
                 self.paused = false;
@@ -267,6 +315,10 @@ impl eframe::App for Puce8App {
         self.update_inputs(&ctx); // E24b2
         let turbo = !ctx.egui_wants_keyboard_input() && ctx.input(|i| i.key_down(egui::Key::Tab));
         let new_frame = self.step(turbo);
+        if self.sav_timer.elapsed().as_secs() >= 60 {
+            self.sav_timer = Instant::now();
+            self.save_sav(); // E29a3 : toutes les 60 s, seulement si la RAM a change
+        }
         self.update_texture(&ctx, new_frame);
 
         egui::Panel::top("menus").show(ui, |ui| self.menus(ui));
@@ -310,6 +362,13 @@ impl eframe::App for Puce8App {
     }
 }
 
+/// E29a3 : fermeture de la fenetre (Echap, croix, menu Quitter) -> derniere sauvegarde.
+impl Drop for Puce8App {
+    fn drop(&mut self) {
+        self.save_sav();
+    }
+}
+
 /// Bouton de manette independant de gilrs (input.rs) -> bouton gilrs.
 fn to_gilrs(b: input::PadButton) -> gilrs::Button {
     use input::PadButton as P;
@@ -327,7 +386,7 @@ fn to_gilrs(b: input::PadButton) -> gilrs::Button {
 }
 
 /// Ouvre la fenetre principale (bloquant jusqu'a la fermeture).
-pub fn run(nes: Option<Nes>, rom_name: String, scale: u32) -> eframe::Result {
+pub fn run(nes: Option<Nes>, rom_path: Option<String>, scale: u32) -> eframe::Result {
     let options = eframe::NativeOptions {
         renderer: eframe::Renderer::Wgpu,
         viewport: egui::ViewportBuilder::default()
@@ -338,6 +397,6 @@ pub fn run(nes: Option<Nes>, rom_name: String, scale: u32) -> eframe::Result {
     eframe::run_native(
         "Puce8",
         options,
-        Box::new(move |_cc| Ok(Box::new(Puce8App::new(nes, rom_name, scale)))),
+        Box::new(move |_cc| Ok(Box::new(Puce8App::new(nes, rom_path, scale)))),
     )
 }
