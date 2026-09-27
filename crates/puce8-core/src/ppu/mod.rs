@@ -58,6 +58,8 @@ pub struct Ppu {
     pub bg: background::BgShifters,
     /// Image 256 x 240 : index palette (bits 0-5) + emphase (bits 6-8) (E18c3).
     pub framebuffer: Vec<u16>,
+    /// Sprites de la ligne a afficher, charges aux points 257-320 de la ligne precedente (E21a2).
+    pub sprite_line: sprite_render::SpriteLine,
 }
 
 impl Default for Ppu {
@@ -90,6 +92,7 @@ impl Ppu {
             pat_hi_latch: 0,
             bg: background::BgShifters::default(),
             framebuffer: vec![0; 256 * 240],
+            sprite_line: sprite_render::SpriteLine::default(),
         }
     }
 
@@ -126,6 +129,7 @@ impl Ppu {
         self.render_dot(); // E18c3 : decalage/rechargement puis pixel
         self.bg_fetch(mapper); // E18b : fetchs de fond du point courant (si rendu actif)
         self.sprite_eval_dot(); // E20a2 : evaluation des sprites (ligne suivante)
+        self.sprite_fetch_dot(mapper); // E21a2 : fetchs des sprites (points 257-320)
     }
 
     /// Fetchs de fond au point pres (E18b) : declenches si le rendu est actif
@@ -842,7 +846,7 @@ mod tests {
 
         // 34 fetchs de tuile (32 + 2 de prechargement) = 68 lectures tables de motifs (< $2000).
         let tuiles: usize = espion.addrs.iter().filter(|&&a| a < 0x2000).count();
-        assert_eq!(tuiles, 68);
+        assert_eq!(tuiles, 68 + 16); // E21a2 : + 16 lectures de motifs de sprites (257-320)
 
         // Lectures NT factices en 337 et 339 : une lecture nametable ($2000-$3EFF) chacune.
         let nt_factice = |dot: usize| {
@@ -855,7 +859,7 @@ mod tests {
         assert_eq!(nt_factice(339), 1);
 
         // Total des acces memoire PPU sur la ligne : 128 (points 1-256) + 8 (321-336) + 2 factices.
-        assert_eq!(espion.addrs.len(), 138);
+        assert_eq!(espion.addrs.len(), 138 + 32); // E21a2 : + 32 acces des fetchs de sprites
     }
 
     /// E18b : mask = 0 -> aucun acces memoire PPU sur une ligne visible.
