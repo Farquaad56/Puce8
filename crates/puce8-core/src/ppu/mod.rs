@@ -10,6 +10,7 @@ pub mod palette;
 mod peek;
 pub mod registers;
 mod render;
+pub mod sprites;
 
 use crate::mapper::{Mapper, Mirroring};
 use registers::Registers;
