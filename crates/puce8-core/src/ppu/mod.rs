@@ -63,6 +63,8 @@ pub struct Ppu {
     pub sprite_line: sprite_render::SpriteLine,
     /// Sprite 0 hit ($2002 bit 6), remis a 0 en (261, 1) (E21c1).
     pub sprite0_hit: bool,
+    /// Open bus PPU avec decroissance (E22a2).
+    pub open_bus: open_bus::DecayLatch,
 }
 
 impl Default for Ppu {
@@ -97,6 +99,7 @@ impl Ppu {
             framebuffer: vec![0; 256 * 240],
             sprite_line: sprite_render::SpriteLine::default(),
             sprite0_hit: false,
+            open_bus: open_bus::DecayLatch::default(),
         }
     }
 
@@ -276,9 +279,28 @@ impl Ppu {
         }
     }
 
+    /// Lecture CPU d'un registre PPU avec open bus a decroissance (E22a2) :
+    /// 1) les bits "open bus" viennent du registre de decroissance ;
+    /// 2) les bits definis par la PPU rafraichissent ce registre
+    ///    ($2002 : bits 7-5 ; $2004 : 8 bits ; $2007 : 8 bits, ou bits 5-0 pour la palette).
+    pub fn cpu_read_register(&mut self, reg: u16, mapper: &mut dyn Mapper) -> u8 {
+        self.regs.io_latch = self.open_bus.value(self.frame);
+        let v_avant = self.regs.v;
+        let value = self.read_register_inner(reg, mapper);
+        let mask = match reg & 7 {
+            2 => 0xE0,
+            4 => 0xFF,
+            7 if v_avant < 0x3F00 => 0xFF,
+            7 => 0x3F,
+            _ => 0x00,
+        };
+        self.open_bus.refresh(mask, value, self.frame);
+        value
+    }
+
     /// Lecture CPU d'un registre PPU (reg = addr & 7). $2002 efface VBlank et `w` ; lu en
     /// (241, 0) il supprime le drapeau de l'image courante, lu en (241, 1)/(241, 2) la NMI.
-    pub fn cpu_read_register(&mut self, reg: u16, mapper: &mut dyn Mapper) -> u8 {
+    fn read_register_inner(&mut self, reg: u16, mapper: &mut dyn Mapper) -> u8 {
         let r = usize::from(reg & 0x07);
         if r == 7 {
             // $2007 : renvoie le buffer de lecture (ou palette | open bus), puis charge ppu_read(v).
@@ -344,6 +366,7 @@ impl Ppu {
     /// Ecriture CPU d'un registre PPU (reg = addr & 7).
     pub fn cpu_write_register(&mut self, reg: u16, v: u8, mapper: &mut dyn Mapper) {
         let r = usize::from(reg & 0x07);
+        self.open_bus.write(v, self.frame); // E22a2 : toute ecriture recharge les 8 bits
         if r == 7 {
             // $2007 : ecrit la memoire PPU a l'adresse v (io_latch mis a jour), puis increment.
             self.ppu_write(self.regs.v & 0x3FFF, v, mapper);
