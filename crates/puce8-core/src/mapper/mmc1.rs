@@ -6,6 +6,7 @@ use crate::mapper::{ChrMemory, Mapper, Mirroring};
 
 const PRG_BANK: usize = 16 * 1024;
 const PRG_RAM_MIN: usize = 8 * 1024;
+const CHR_BANK: usize = 4 * 1024;
 
 // ---------------------------------------------------------------- E26a1 : registre serie
 
@@ -149,6 +150,18 @@ impl Mmc1 {
         }
     }
 
+    /// Offset CHR (E26b1) : 8 Ko (`CHR0 & 0x1E`) ou deux banques de 4 Ko (CHR0, CHR1).
+    fn chr_offset(&self, addr: u16) -> usize {
+        let a = usize::from(addr & 0x1FFF);
+        if self.control & 0x10 == 0 {
+            usize::from(self.chr0 & 0x1E) * CHR_BANK + a
+        } else if a < 0x1000 {
+            usize::from(self.chr0) * CHR_BANK + a
+        } else {
+            usize::from(self.chr1) * CHR_BANK + (a & 0x0FFF)
+        }
+    }
+
     /// Applique un evenement du registre serie.
     fn apply(&mut self, ev: SerialEvent) {
         match ev {
@@ -185,17 +198,17 @@ impl Mapper for Mmc1 {
         }
     }
 
-    // CHR non banke pour l'instant (banques CHR : E26b1).
     fn ppu_read(&mut self, addr: u16) -> u8 {
-        self.chr.read(usize::from(addr))
+        self.chr.read(self.chr_offset(addr))
     }
 
     fn ppu_write(&mut self, addr: u16, value: u8) {
-        self.chr.write(usize::from(addr), value);
+        let o = self.chr_offset(addr);
+        self.chr.write(o, value);
     }
 
     fn ppu_peek(&self, addr: u16) -> u8 {
-        self.chr.read(usize::from(addr))
+        self.chr.read(self.chr_offset(addr))
     }
 
     /// Mirroring pilote par Control (bits 0-1), pas par l'en-tete.
@@ -391,5 +404,37 @@ mod tests {
         }
         assert_eq!(m.registers().3, 1); // et non 3
         assert_eq!(m.cpu_read(0x8000), Some(1));
+    }
+
+    // ---------- E26b1 ----------
+
+    /// Comme `cart(8)`, avec une CHR-ROM de `n` banques de 4 Ko (octet = numero de banque).
+    fn cart_chr(n: usize) -> Cartridge {
+        let mut c = cart(8);
+        c.chr_rom = (0..n * CHR_BANK).map(|i| (i / CHR_BANK) as u8).collect();
+        c.chr_ram_size = 0;
+        c
+    }
+
+    #[test]
+    fn chr_4k() {
+        let mut m = Mmc1::new(cart_chr(8));
+        write_serial(&mut m, 0x8000, 0x1C); // CHR 4 Ko, mode PRG 3
+        write_serial(&mut m, 0xA000, 5);
+        write_serial(&mut m, 0xC000, 2);
+        assert_eq!(m.ppu_read(0x0000), 5);
+        assert_eq!(m.ppu_read(0x0FFF), 5);
+        assert_eq!(m.ppu_read(0x1000), 2);
+        assert_eq!(m.ppu_peek(0x1FFF), 2);
+    }
+
+    #[test]
+    fn chr_8k() {
+        let mut m = Mmc1::new(cart_chr(8));
+        write_serial(&mut m, 0x8000, 0x0C); // CHR 8 Ko
+        write_serial(&mut m, 0xA000, 5); // bit 0 ignore : banques 4 et 5
+        write_serial(&mut m, 0xC000, 2); // ignore en mode 8 Ko
+        assert_eq!(m.ppu_read(0x0000), 4);
+        assert_eq!(m.ppu_read(0x1000), 5);
     }
 }
