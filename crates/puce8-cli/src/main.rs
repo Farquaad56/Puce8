@@ -59,6 +59,20 @@ fn dump_views(
     }
 }
 
+/// Dump texte de l'OAM (E21c2) : 64 lignes "NN: Y=.. T=.. A=.. X=.." en hexadecimal.
+fn dump_oam(nes: &puce8_core::nes::Nes, path: &str) {
+    let oam = &nes.bus.ppu.oam;
+    let mut txt = String::new();
+    for n in 0..64 {
+        let s = &oam[n * 4..n * 4 + 4];
+        txt.push_str(&format!(
+            "{:02}: Y={:02X} T={:02X} A={:02X} X={:02X}\n",
+            n, s[0], s[1], s[2], s[3]
+        ));
+    }
+    fs::write(path, txt).unwrap_or_else(|e| die(2, &format!("cannot write {}: {}", path, e)));
+}
+
 fn do_run(args: &[String]) {
     // Parse args after "run <rom>"
     let rom = &args[2];
@@ -75,6 +89,7 @@ fn do_run(args: &[String]) {
     let mut trace_max_lines: usize = 100_000;
     let mut dump_patterns: Option<String> = None;
     let mut dump_nametables: Option<String> = None;
+    let mut dump_oam_path: Option<String> = None;
     let mut patterns_palette = puce8_core::debug::ViewPalette::Gray;
 
     let mut i = 0;
@@ -106,6 +121,10 @@ fn do_run(args: &[String]) {
             }
             "--dump-patterns" => {
                 dump_patterns = Some(out_path(rest, i, "--dump-patterns"));
+                i += 1;
+            }
+            "--dump-oam" => {
+                dump_oam_path = Some(out_path(rest, i, "--dump-oam"));
                 i += 1;
             }
             "--dump-nametables" => {
@@ -188,6 +207,9 @@ fn do_run(args: &[String]) {
         capture::write_screenshot(sp, &nes.bus.ppu.framebuffer).unwrap_or_else(|e| die(2, &e));
     }
     dump_views(&nes, dump_patterns, dump_nametables, patterns_palette);
+    if let Some(p) = dump_oam_path {
+        dump_oam(&nes, &p);
+    }
     let r = harness::Resultat {
         rom: rom.to_string(),
         protocole: "run".to_string(),
