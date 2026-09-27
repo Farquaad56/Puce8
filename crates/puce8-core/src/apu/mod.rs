@@ -5,6 +5,7 @@
 pub mod envelope;
 pub mod frame_counter;
 pub mod length;
+pub mod sweep;
 
 use frame_counter::FrameCounter;
 use length::LengthCounter;
