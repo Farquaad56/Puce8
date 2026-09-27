@@ -720,3 +720,23 @@ phase = "ppu"
 etape = "E21"
 frames = 600
 hash_attendu = "c8551861e16421d0"
+
+# E26b4 : captures MMC1 (scroll + A12, 120 images)
+
+[[rom]]
+chemin = "scrolltest/scroll.nes"
+protocole = "image"
+phase = "mapper"
+etape = "E26"
+frames = 120
+hash_attendu = "fcb289f170ceeca0"
+optionnel = true
+
+[[rom]]
+chemin = "MMC1_A12/mmc1_a12.nes"
+protocole = "image"
+phase = "mapper"
+etape = "E26"
+frames = 120
+hash_attendu = "16b7cba87c24aa2"
+optionnel = true
