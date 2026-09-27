@@ -1,6 +1,6 @@
 //! Puce8 - frontend de bureau (E23).
 
-use puce8_desktop::app;
+use puce8_desktop::{app, gui};
 use std::time::Instant;
 
 fn main() {
@@ -13,8 +13,18 @@ fn main() {
         headless(args.rom.as_deref(), n);
         return;
     }
-    // E23a2 : ouverture de la fenetre (eframe).
-    eprintln!("fenetre pas encore disponible (E23a2) ; utiliser --headless-frames N");
+    // E23a2 : fenetre eframe/egui.
+    let nes = args.rom.as_deref().map(|p| {
+        app::load_rom(p).unwrap_or_else(|e| {
+            eprintln!("{e}");
+            std::process::exit(1);
+        })
+    });
+    let rom_name = args.rom.clone().unwrap_or_default();
+    if let Err(e) = gui::run(nes, rom_name, args.scale) {
+        eprintln!("erreur fenetre : {e}");
+        std::process::exit(1);
+    }
 }
 
 /// Mode sans fenetre : N images, affichage des images/s, puis sortie (E23a1, utilise en E37b).
