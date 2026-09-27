@@ -23,8 +23,9 @@ pub struct Puce8App {
     open_dialog: bool,
     open_path: String,
     error: Option<String>,
-    /// E23b2 : fenetre de debogage (le Tilemap Viewer arrive en E23b3).
+    /// E23b2/E23b3 : fenetres de debogage.
     tiles: viewers::TileViewer,
+    tilemap: viewers::TilemapViewer,
 }
 
 impl Puce8App {
@@ -44,6 +45,7 @@ impl Puce8App {
             open_path: String::new(),
             error: None,
             tiles: viewers::TileViewer::default(),
+            tilemap: viewers::TilemapViewer::default(),
         }
     }
 
@@ -110,16 +112,20 @@ impl Puce8App {
         if ctx.egui_wants_keyboard_input() {
             return;
         }
-        let (esc, f5, p, f1) = ctx.input(|i| {
+        let (esc, f5, p, f1, f2) = ctx.input(|i| {
             (
                 i.key_pressed(egui::Key::Escape),
                 i.key_pressed(egui::Key::F5),
                 i.key_pressed(egui::Key::P),
                 i.key_pressed(egui::Key::F1),
+                i.key_pressed(egui::Key::F2),
             )
         });
         if f1 {
             self.tiles.open = !self.tiles.open;
+        }
+        if f2 {
+            self.tilemap.open = !self.tilemap.open;
         }
         if esc {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -179,7 +185,7 @@ impl Puce8App {
             });
             ui.menu_button("Debogage", |ui| {
                 ui.checkbox(&mut self.tiles.open, "Tile Viewer (F1)");
-                ui.label("Tilemap Viewer (F2) : E23b3");
+                ui.checkbox(&mut self.tilemap.open, "Tilemap Viewer (F2)");
             });
         });
     }
@@ -253,8 +259,10 @@ impl eframe::App for Puce8App {
             // Une fois par image emulee (et toujours en pause) ; fenetre fermee = aucun calcul.
             if new_frame || self.paused {
                 self.tiles.refresh(&ctx, nes);
+                self.tilemap.refresh(&ctx, nes);
             }
             self.tiles.show(&ctx);
+            self.tilemap.show(&ctx, nes);
         }
         ctx.request_repaint();
     }

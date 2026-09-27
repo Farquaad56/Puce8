@@ -123,3 +123,119 @@ impl TileViewer {
         self.open = open;
     }
 }
+
+// ---------------------------------------------------------------- E23b3 : Tilemap Viewer
+
+/// Tilemap Viewer : les 4 nametables (512 x 480).
+pub struct TilemapViewer {
+    pub open: bool,
+    grid_tiles: bool,
+    grid_attr: bool,
+    scroll_frame: bool,
+    separators: bool,
+    zoom: f32,
+    texture: Option<egui::TextureHandle>,
+    header: String,
+}
+
+impl Default for TilemapViewer {
+    fn default() -> Self {
+        TilemapViewer {
+            open: false,
+            grid_tiles: false,
+            grid_attr: false,
+            scroll_frame: true,
+            separators: true,
+            zoom: 1.0,
+            texture: None,
+            header: String::new(),
+        }
+    }
+}
+
+impl TilemapViewer {
+    /// Recalcule l'image et l'en-tete (une fois par image emulee, ou en pause). Fermee = aucun calcul.
+    pub fn refresh(&mut self, ctx: &egui::Context, nes: &Nes) {
+        if !self.open {
+            return;
+        }
+        let (w, h) = (debug::NAMETABLES_W, debug::NAMETABLES_H);
+        let (ppu, mapper) = (&nes.bus.ppu, nes.bus.mapper.as_ref());
+        let mut px = vec![0u16; w * h];
+        debug::render_nametables(ppu, mapper, &mut px);
+        let mut buf = to_rgb(&px);
+        if self.grid_tiles {
+            overlay::draw_grid(&mut buf, w, h, 8, 0xFFFFFF, 96);
+        }
+        if self.grid_attr {
+            overlay::draw_grid(&mut buf, w, h, 16, 0xFF0000, 128);
+        }
+        if self.separators {
+            for y in 0..h {
+                buf[y * w + 256] = 0xFFFFFF;
+            }
+            for x in 0..w {
+                buf[240 * w + x] = 0xFFFFFF;
+            }
+        }
+        let (sx, sy) = debug::scroll_origin(ppu);
+        if self.scroll_frame {
+            let pos = (usize::from(sx), usize::from(sy));
+            overlay::draw_rect_wrap(&mut buf, (w, h), pos, (256, 240), 0xFFFF00);
+        }
+        let chr = if ppu.ctrl() & 0x10 != 0 { 1 } else { 0 };
+        self.header = format!(
+            "{:?} - CHR fond ${chr}000 - scroll ({sx}, {sy})",
+            mapper.mirroring()
+        );
+        set_texture(ctx, &mut self.texture, "tilemap_viewer", &buf, w, h);
+    }
+
+    /// Fenetre flottante (menu Debogage, F2, ou croix).
+    pub fn show(&mut self, ctx: &egui::Context, nes: &Nes) {
+        let mut open = self.open;
+        egui::Window::new("Tilemap Viewer")
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.label(&self.header);
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut self.grid_tiles, "Grille tuiles (8 px)");
+                    ui.checkbox(&mut self.grid_attr, "Grille attributs (16 px)");
+                });
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut self.scroll_frame, "Cadre de scroll");
+                    ui.checkbox(&mut self.separators, "Separateurs de nametables");
+                    ui.add(egui::Slider::new(&mut self.zoom, 1.0..=4.0).text("zoom"));
+                });
+                if let Some(t) = &self.texture {
+                    let (w, h) = (debug::NAMETABLES_W, debug::NAMETABLES_H);
+                    let size = egui::vec2(w as f32 * self.zoom, h as f32 * self.zoom);
+                    egui::ScrollArea::both().show(ui, |ui| {
+                        let r = ui.add(
+                            egui::Image::new(t)
+                                .fit_to_exact_size(size)
+                                .sense(egui::Sense::hover()),
+                        );
+                        if let Some(pos) = r.hover_pos() {
+                            let o = r.rect.min;
+                            if let Some((x, y)) = overlay::pixel_from_hover(
+                                (pos.x, pos.y),
+                                (o.x, o.y),
+                                self.zoom,
+                                w,
+                                h,
+                            ) {
+                                let (ppu, mapper) = (&nes.bus.ppu, nes.bus.mapper.as_ref());
+                                let i = debug::tile_at(ppu, mapper, x as u16, y as u16);
+                                r.on_hover_text(format!(
+                                    "NT ${:04X} tuile ${:02X} pal {}",
+                                    i.nt_addr, i.tile, i.palette
+                                ));
+                            }
+                        }
+                    });
+                }
+            });
+        self.open = open;
+    }
+}
