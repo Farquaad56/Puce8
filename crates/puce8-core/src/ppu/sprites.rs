@@ -23,6 +23,10 @@ pub struct SpriteEval {
     latch: u8,
     /// Les 64 sprites ont ete parcourus (ou 8 trouves, voir E20b).
     done: bool,
+    /// Overflow detecte sur cette ligne (E20b1) ; recopie dans `Ppu::sprite_overflow` (E20b2).
+    pub overflow: bool,
+    /// Octets restant a lire apres la detection d'overflow (E20b1).
+    skip: u8,
 }
 
 impl Default for SpriteEval {
@@ -42,6 +46,8 @@ impl SpriteEval {
             sec_idx: 0,
             latch: 0,
             done: false,
+            overflow: false,
+            skip: 0,
         }
     }
 
@@ -76,8 +82,7 @@ impl SpriteEval {
             return;
         }
         if self.found >= 8 {
-            // 8 sprites deja trouves : la recherche d'overflow viendra en E20b.
-            self.done = true;
+            self.overflow_step(line, height); // E20b1
             return;
         }
         self.secondary[usize::from(self.sec_idx)] = self.latch;
@@ -99,6 +104,37 @@ impl SpriteEval {
                 self.found += 1;
                 self.next_sprite();
             }
+        }
+    }
+
+    /// Recherche d'overflow, une fois 8 sprites trouves (E20b1), AVEC le bogue materiel :
+    /// l'octet lu OAM[n][m] est compare comme un Y ;
+    /// - dans la plage : overflow = 1, puis lecture des 3 octets suivants (m++ avec report sur n), puis fin ;
+    /// - hors plage : n += 1 ET m += 1 SANS report (bogue "diagonal") ; apres le 64e sprite : fin.
+    fn overflow_step(&mut self, line: u16, height: u16) {
+        if self.skip > 0 {
+            self.skip -= 1;
+            self.m += 1;
+            if self.m == 4 {
+                self.m = 0;
+                self.next_sprite();
+            }
+            if self.skip == 0 {
+                self.done = true;
+            }
+            return;
+        }
+        if Self::in_range(line, self.latch, height) {
+            self.overflow = true;
+            self.skip = 3;
+            self.m += 1;
+            if self.m == 4 {
+                self.m = 0;
+                self.next_sprite();
+            }
+        } else {
+            self.m = (self.m + 1) & 3; // bogue : m avance aussi, sans report sur n
+            self.next_sprite();
         }
     }
 
@@ -286,5 +322,53 @@ mod tests {
         jusqu_a(&mut ppu, &mut bus, (10, 300));
         assert_eq!(ppu.sprite_eval.found, 0);
         assert_eq!(ppu.regs.oam_addr, 0x55);
+    }
+
+    // ---------- E20b1 : overflow (avec le bogue) ----------
+    // Ligne 200 : les octets 1-3 de `oam_vide` (0-63) ne sont jamais "dans la plage" quand le bogue les lit comme des Y.
+
+    #[test]
+    fn huit_sans_overflow() {
+        let mut oam = oam_vide();
+        for n in 0..8 {
+            oam[n * 4] = 200;
+        }
+        let e = ligne(&oam, 200, 8);
+        assert_eq!(e.found, 8);
+        assert!(!e.overflow);
+    }
+
+    #[test]
+    fn overflow_9() {
+        let mut oam = oam_vide();
+        for n in 0..9 {
+            oam[n * 4] = 200;
+        }
+        let e = ligne(&oam, 200, 8);
+        assert!(e.overflow);
+        assert_eq!(e.found, 8); // l'OAM secondaire ne contient que 8 sprites
+    }
+
+    #[test]
+    fn overflow_bogue_diagonal() {
+        // 8 dans la plage ; sprite 8 hors plage -> n = 9, m = 1 ; OAM[9][1] lu comme un Y.
+        let mut oam = oam_vide();
+        for n in 0..8 {
+            oam[n * 4] = 200;
+        }
+        oam[9 * 4 + 1] = 198; // "Y" = 198 : ligne 200 dans la plage
+        assert!(ligne(&oam, 200, 8).overflow);
+    }
+
+    #[test]
+    fn overflow_bogue_faux_negatif() {
+        // 8 dans la plage ; sprite 9 VRAIMENT dans la plage, mais son Y n'est jamais lu
+        // (on lit OAM[9][1], puis OAM[10][2]...) : pas d'overflow, comme sur le vrai materiel.
+        let mut oam = oam_vide();
+        for n in 0..8 {
+            oam[n * 4] = 200;
+        }
+        oam[9 * 4] = 200;
+        assert!(!ligne(&oam, 200, 8).overflow);
     }
 }
