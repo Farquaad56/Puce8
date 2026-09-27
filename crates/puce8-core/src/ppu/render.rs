@@ -19,6 +19,9 @@ impl Ppu {
         }
         if line <= 239 && (1..=256).contains(&dot) {
             let x = usize::from(dot - 1);
+            if self.sprite0_hit_at(x) {
+                self.sprite0_hit = true; // E21c1
+            }
             let couleur = self.couleur_pixel(x);
             self.framebuffer[usize::from(line) * 256 + x] = couleur;
         }
@@ -34,6 +37,16 @@ impl Ppu {
         } else {
             (px, pal)
         }
+    }
+
+    /// Sprite 0 hit au x donne (E21c1) : fond ET sprites affiches, x != 255, pixel du sprite 0
+    /// opaque (meme s'il ne gagne pas la composition) ET pixel de fond opaque, apres masquages gauches.
+    /// Independant de la priorite (`attr & 0x20`).
+    fn sprite0_hit_at(&self, x: usize) -> bool {
+        self.regs.mask & 0x18 == 0x18
+            && x != 255
+            && self.sprite_at(x).sprite0
+            && self.bg_pixel(x).0 != 0
     }
 
     /// Valeur stockee pour le pixel x : index palette (0-5) | emphase (6-8).

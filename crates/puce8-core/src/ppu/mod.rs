@@ -60,6 +60,8 @@ pub struct Ppu {
     pub framebuffer: Vec<u16>,
     /// Sprites de la ligne a afficher, charges aux points 257-320 de la ligne precedente (E21a2).
     pub sprite_line: sprite_render::SpriteLine,
+    /// Sprite 0 hit ($2002 bit 6), remis a 0 en (261, 1) (E21c1).
+    pub sprite0_hit: bool,
 }
 
 impl Default for Ppu {
@@ -93,6 +95,7 @@ impl Ppu {
             bg: background::BgShifters::default(),
             framebuffer: vec![0; 256 * 240],
             sprite_line: sprite_render::SpriteLine::default(),
+            sprite0_hit: false,
         }
     }
 
@@ -123,6 +126,7 @@ impl Ppu {
                 self.suppress_vbl = false; // suppression limitee a l'image courante
                 self.nmi_suppressed = false; // fin du VBlank : nmi_line() redevient normale
                 self.sprite_overflow = false; // E20b2 : overflow remis a 0
+                self.sprite0_hit = false; // E21c1 : sprite 0 hit remis a 0
             }
             _ => {}
         }

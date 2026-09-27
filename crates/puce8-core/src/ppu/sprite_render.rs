@@ -433,4 +433,70 @@ mod tests {
         let ppu = image(0x0A, 1, 0x00, 100); // mask & 0x10 == 0
         assert_eq!(px(&ppu, 100, 50), 0x16);
     }
+
+    // ---------- E21c1 : sprite 0 hit ----------
+
+    /// Joue une image avec `image(...)` en s'arretant a (ligne, point) ; renvoie le bit 6 de $2002.
+    fn hit_a(mask: u8, nt: u8, attr: u8, sx: u8, cible: (u16, u16)) -> bool {
+        let mut m = espion();
+        for r in 0..8 {
+            m.mem[0x10 + r] = 0xFF;
+            m.mem[0x20 + r] = 0xFF;
+        }
+        let mut ppu = ppu_ligne(261);
+        ppu.regs.mask = mask;
+        ppu.ciram[..960].fill(nt);
+        ppu.oam[0..4].copy_from_slice(&[49, 2, attr, sx]);
+        jusqu_a(&mut ppu, &mut m, cible);
+        ppu.cpu_peek_register(2) & 0x40 != 0
+    }
+
+    #[test]
+    fn hit_basique() {
+        // Sprite 0 en X = 100, lignes 50-57 : hit au pixel x = 100 de la ligne 50 (point 101).
+        assert!(!hit_a(0x1E, 1, 0x00, 100, (50, 100)));
+        assert!(hit_a(0x1E, 1, 0x00, 100, (50, 101)));
+        assert!(hit_a(0x1E, 1, 0x00, 100, (200, 0))); // reste pose
+    }
+
+    #[test]
+    fn hit_meme_derriere() {
+        assert!(hit_a(0x1E, 1, 0x20, 100, (51, 0))); // priorite ignoree
+    }
+
+    #[test]
+    fn pas_de_hit_fond_transparent() {
+        assert!(!hit_a(0x1E, 0, 0x00, 100, (239, 0)));
+    }
+
+    #[test]
+    fn hit_x255() {
+        // Sprite en X = 255 : seul le pixel x = 255 est dans l'ecran -> jamais de hit.
+        assert!(!hit_a(0x1E, 1, 0x00, 255, (239, 0)));
+    }
+
+    #[test]
+    fn hit_clip() {
+        // Sprite en X = 0 : pixels 0-7. Avec mask & 0x02 == 0 (fond cache a gauche) -> pas de hit.
+        assert!(!hit_a(0x1C, 1, 0x00, 0, (239, 0)));
+        assert!(hit_a(0x1E, 1, 0x00, 0, (239, 0)));
+    }
+
+    #[test]
+    fn hit_efface_261() {
+        let mut m = espion();
+        for r in 0..8 {
+            m.mem[0x10 + r] = 0xFF;
+            m.mem[0x20 + r] = 0xFF;
+        }
+        let mut ppu = ppu_ligne(261);
+        ppu.regs.mask = 0x1E;
+        ppu.ciram[..960].fill(1);
+        ppu.oam[0..4].copy_from_slice(&[49, 2, 0, 100]);
+        jusqu_a(&mut ppu, &mut m, (240, 0)); // image complete
+        jusqu_a(&mut ppu, &mut m, (261, 0));
+        assert!(ppu.sprite0_hit);
+        jusqu_a(&mut ppu, &mut m, (261, 1));
+        assert!(!ppu.sprite0_hit);
+    }
 }

@@ -182,14 +182,14 @@ impl Ppu {
         }
     }
 
-    /// Bits "sprites" de `$2002` (E20b2) : bit 5 = overflow. Le bit 6 (sprite 0 hit) viendra en E21.
+    /// Bits "sprites" de `$2002` (E20b2/E21c1) : bit 5 = overflow, bit 6 = sprite 0 hit.
     /// `r` = numero du registre (0-7) ; renvoie 0 pour les autres registres.
     pub(super) fn status_sprites(&self, r: usize) -> u8 {
-        if r == 2 && self.sprite_overflow {
-            0x20
-        } else {
-            0
+        if r != 2 {
+            return 0;
         }
+        (u8::from(self.sprite0_hit) << 6) | (u8::from(self.sprite_overflow) << 5)
+        // E21c1 : bit 6
     }
 
     /// Vrai si l'OAM est occupee par le rendu (E20b3) : rendu actif, lignes 0-239 et 261.
