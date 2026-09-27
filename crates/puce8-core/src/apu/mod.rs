@@ -7,6 +7,7 @@ pub mod frame_counter;
 pub mod length;
 pub mod pulse;
 pub mod sweep;
+pub mod triangle;
 
 use frame_counter::FrameCounter;
 use length::LengthCounter;
