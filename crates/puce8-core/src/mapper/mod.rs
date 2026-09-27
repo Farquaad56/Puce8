@@ -2,6 +2,7 @@
 // wiki: NROM ; wiki: INES_Mapper_000
 
 pub mod cnrom;
+pub mod mmc1;
 pub mod nrom;
 pub mod uxrom;
 
