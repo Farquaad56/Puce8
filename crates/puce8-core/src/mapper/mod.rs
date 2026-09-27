@@ -100,13 +100,14 @@ impl ChrMemory {
     }
 }
 
-/// Fabrique : mapper a partir de l'en-tete de la cartouche (NROM, MMC1, UxROM, CNROM).
+/// Fabrique : mapper a partir de l'en-tete de la cartouche (NROM, MMC1, UxROM, CNROM, MMC3).
 pub fn create_mapper(cart: Cartridge) -> Result<Box<dyn Mapper>, RomError> {
     match cart.mapper_id {
         0 => Ok(Box::new(nrom::Nrom::new(cart))),
         1 => Ok(Box::new(mmc1::Mmc1::new(cart))),
         2 => Ok(Box::new(uxrom::Uxrom::new(cart))),
         3 => Ok(Box::new(cnrom::Cnrom::new(cart))),
+        4 => Ok(Box::new(mmc3::Mmc3::new(cart))),
         n => Err(RomError::Unsupported(format!("mapper {n}"))),
     }
 }
@@ -194,5 +195,13 @@ mod tests {
         c.mapper_id = 1;
         let mut m = create_mapper(c).expect("mapper 1 (MMC1) doit etre creable");
         assert_eq!(m.cpu_read(0xC000), Some(0)); // PRG nul, derniere banque
+    }
+
+    #[test]
+    fn mmc3_cree() {
+        let mut c = cart(Vec::new(), 8_192);
+        c.mapper_id = 4;
+        let mut m = create_mapper(c).expect("mapper 4 (MMC3) doit etre creable");
+        assert_eq!(m.cpu_read(0xE000), Some(0)); // PRG nul, derniere banque
     }
 }
