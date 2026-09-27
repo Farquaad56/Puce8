@@ -22,6 +22,12 @@ pub struct Mmc3 {
     /// $A001 : bit 7 = PRG-RAM active, bit 6 = protegee en ecriture (E27a3).
     ram_protect: u8,
     has_battery: bool,
+    /// E28a1 : compteur de lignes et IRQ.
+    irq_latch: u8,
+    irq_counter: u8,
+    irq_reload: bool,
+    irq_enabled: bool,
+    irq: bool,
 }
 
 impl Mmc3 {
@@ -36,6 +42,11 @@ impl Mmc3 {
             bank_select: 0,
             regs: [0; 8],
             ram_protect: 0x80, // SIMPLIFICATION: PRG-RAM active et inscriptible a la mise sous tension
+            irq_latch: 0,
+            irq_counter: 0,
+            irq_reload: false,
+            irq_enabled: false,
+            irq: false,
         }
     }
 
@@ -144,8 +155,35 @@ impl Mmc3 {
                 }
             }
             0xA001 => self.ram_protect = value,
-            _ => {} // $C000-$E001 : IRQ (E28a1)
+            0xC000 => self.irq_latch = value,
+            0xC001 => {
+                self.irq_counter = 0;
+                self.irq_reload = true;
+            }
+            0xE000 => {
+                self.irq_enabled = false;
+                self.irq = false; // acquittement
+            }
+            _ => self.irq_enabled = true, // $E001
         }
+    }
+
+    /// Un clock du compteur de lignes (E28a1) ; appele sur un front montant filtre de A12 (E28a2).
+    pub fn clock_counter(&mut self) {
+        if self.irq_counter == 0 || self.irq_reload {
+            self.irq_counter = self.irq_latch;
+            self.irq_reload = false;
+        } else {
+            self.irq_counter = self.irq_counter.wrapping_sub(1);
+        }
+        if self.irq_counter == 0 && self.irq_enabled {
+            self.irq = true;
+        }
+    }
+
+    /// Valeur du compteur de lignes (tests et debogage).
+    pub fn counter(&self) -> u8 {
+        self.irq_counter
     }
 }
 
@@ -184,6 +222,10 @@ impl Mapper for Mmc3 {
 
     fn mirroring(&self) -> Mirroring {
         self.mirroring
+    }
+
+    fn irq_pending(&self) -> bool {
+        self.irq
     }
 
     fn battery_ram(&self) -> Option<&[u8]> {
@@ -322,5 +364,74 @@ mod tests {
         c.has_battery = true;
         assert_eq!(Mmc3::new(c).battery_ram().map(|r| r.len()), Some(8 * 1024));
         assert!(Mmc3::new(cart(16, 8)).battery_ram().is_none());
+    }
+
+    // ---------- E28a1 ----------
+
+    #[test]
+    fn reload_c001() {
+        let mut m = Mmc3::new(cart(16, 8));
+        m.cpu_write(0xC000, 5); // latch
+        m.cpu_write(0xC001, 0); // rechargement au prochain clock
+        m.clock_counter();
+        assert_eq!(m.counter(), 5);
+        m.clock_counter();
+        assert_eq!(m.counter(), 4);
+        m.cpu_write(0xC001, 0);
+        m.clock_counter();
+        assert_eq!(m.counter(), 5);
+    }
+
+    #[test]
+    fn decompte() {
+        let mut m = Mmc3::new(cart(16, 8));
+        m.cpu_write(0xC000, 2);
+        m.cpu_write(0xC001, 0);
+        m.cpu_write(0xE001, 0); // IRQ activee
+        m.clock_counter(); // 2
+        m.clock_counter(); // 1
+        assert!(!m.irq_pending());
+        m.clock_counter(); // 0 -> IRQ
+        assert_eq!(m.counter(), 0);
+        assert!(m.irq_pending());
+    }
+
+    #[test]
+    fn latch_zero() {
+        let mut m = Mmc3::new(cart(16, 8));
+        m.cpu_write(0xC000, 0);
+        m.cpu_write(0xE001, 0);
+        m.clock_counter();
+        assert!(m.irq_pending()); // IRQ a chaque clock
+        m.cpu_write(0xE000, 0); // acquittement (et desactivation)
+        m.cpu_write(0xE001, 0);
+        assert!(!m.irq_pending());
+        m.clock_counter();
+        assert!(m.irq_pending());
+    }
+
+    #[test]
+    fn e000_acquitte() {
+        let mut m = Mmc3::new(cart(16, 8));
+        m.cpu_write(0xC000, 1);
+        m.cpu_write(0xE001, 0);
+        m.clock_counter(); // 1
+        m.clock_counter(); // 0 -> IRQ
+        assert!(m.irq_pending());
+        m.cpu_write(0xE000, 0);
+        assert!(!m.irq_pending());
+        m.clock_counter(); // recharge 1
+        m.clock_counter(); // 0, mais IRQ desactivee
+        assert!(!m.irq_pending());
+    }
+
+    #[test]
+    fn desactivee() {
+        let mut m = Mmc3::new(cart(16, 8));
+        m.cpu_write(0xC000, 1);
+        for _ in 0..4 {
+            m.clock_counter();
+        }
+        assert!(!m.irq_pending()); // jamais activee ($E001 non ecrit)
     }
 }
