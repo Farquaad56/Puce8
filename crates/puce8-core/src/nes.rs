@@ -81,6 +81,16 @@ impl Nes {
         self.bus.controller.set_buttons(port, buttons);
     }
 
+    /// RAM de batterie de la cartouche (E29a1) ; None si la carte n'en a pas.
+    pub fn battery_ram(&self) -> Option<&[u8]> {
+        self.bus.mapper.battery_ram()
+    }
+
+    /// Restaure la RAM de batterie (contenu d'un .sav) (E29a1).
+    pub fn load_battery_ram(&mut self, data: &[u8]) {
+        self.bus.mapper.load_battery_ram(data);
+    }
+
     /// Lecture directe en memoire (pour les tests).
     pub fn peek(&self, addr: u16) -> u8 {
         self.bus.peek(addr)
@@ -259,5 +269,26 @@ mod tests {
         let (line, point) = nes.bus.ppu.position();
         assert_eq!(line, 19, "IRQ en ({line}, {point})");
         assert!((255..=270).contains(&point), "IRQ en ({line}, {point})");
+    }
+
+    // ---------- E29a1 : RAM de batterie ----------
+
+    #[test]
+    fn nes_mmc1_batterie() {
+        // MMC1 (octet 6 = $12 : mapper 1, batterie), PRG 32 Ko, CHR-RAM.
+        let mut rom = vec![0x4E, 0x45, 0x53, 0x1A, 0x02, 0x00, 0x12, 0x00];
+        rom.extend_from_slice(&[0; 8]);
+        rom.extend(vec![0xEA; 32 * 1024]);
+        let mut nes = Nes::from_rom(&rom).unwrap();
+        assert_eq!(nes.battery_ram().map(|r| r.len()), Some(8 * 1024));
+        nes.load_battery_ram(&[0xAA, 0xBB]);
+        assert_eq!(nes.peek(0x6001), 0xBB);
+        assert_eq!(nes.battery_ram().map(|r| r[0]), Some(0xAA));
+    }
+
+    #[test]
+    fn nes_nrom_sans_batterie() {
+        let nes = Nes::from_rom(&rom_minimale()).unwrap();
+        assert!(nes.battery_ram().is_none());
     }
 }
