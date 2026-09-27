@@ -12,6 +12,7 @@ pub mod triangle;
 use frame_counter::FrameCounter;
 use length::LengthCounter;
 use pulse::Pulse;
+use triangle::Triangle;
 
 /// APU.
 pub struct Apu {
@@ -21,6 +22,8 @@ pub struct Apu {
     pub frame: FrameCounter,
     /// Pulses 1 et 2 (E31b2).
     pub pulses: [Pulse; 2],
+    /// Triangle (E32a2).
+    pub triangle: Triangle,
     /// Cycles CPU depuis la mise sous tension.
     cycle: u64,
 }
@@ -42,6 +45,7 @@ impl Apu {
             lengths: [LengthCounter::default(); 4],
             frame: FrameCounter::new(),
             pulses: [Pulse::new(true), Pulse::new(false)],
+            triangle: Triangle::default(),
             cycle: 0,
         }
     }
@@ -49,6 +53,7 @@ impl Apu {
     /// Un cycle CPU : timers des canaux, puis frame counter.
     pub fn tick(&mut self) {
         self.cycle += 1;
+        self.triangle.clock_timer(self.lengths[2].active());
         if self.cycle.is_multiple_of(2) {
             for p in &mut self.pulses {
                 p.clock_timer(); // les pulses avancent 1 cycle CPU sur 2
@@ -68,6 +73,7 @@ impl Apu {
         for p in &mut self.pulses {
             p.envelope.clock();
         }
+        self.triangle.clock_linear();
     }
 
     /// Horloge "demi" : compteurs de longueur et sweeps.
@@ -85,6 +91,7 @@ impl Apu {
         self.write_length(addr, v);
         match addr {
             0x4000..=0x4007 => self.pulses[canal(addr)].write(addr, v),
+            0x4008..=0x400B => self.triangle.write(addr, v),
             0x4015 => self.write_status(v),
             0x4017 => self.frame.write(v, self.cycle.is_multiple_of(2)),
             _ => {}
@@ -146,8 +153,8 @@ impl Apu {
         [
             coupe(0, self.pulses[0].output()),
             coupe(1, self.pulses[1].output()),
-            0, // triangle : E32a2
-            0, // bruit : E32b2
+            self.triangle.output(), // longueur a 0 : sequenceur fige (clock_timer), sortie gardee
+            0,                      // bruit : E32b2
         ]
     }
 }
@@ -238,5 +245,20 @@ mod tests {
         apu.write_register(0x4015, 0x00); // longueur a 0 : muet
         ticks(&mut apu, 10_000);
         assert_eq!(apu.outputs()[0], 0);
+    }
+
+    // ---------- E32a2 ----------
+
+    #[test]
+    fn triangle_via_apu() {
+        let mut apu = Apu::new();
+        apu.write_register(0x4015, 0x04);
+        apu.write_register(0x4008, 0xFF); // C = 1, R = 127
+        apu.write_register(0x400A, 0x7E); // periode 126
+        apu.write_register(0x400B, 0x08); // longueur + rechargement lineaire
+        ticks(&mut apu, 8000); // passe un quart de trame : lineaire charge
+        let pas = apu.triangle.step;
+        ticks(&mut apu, 1000);
+        assert_ne!(apu.triangle.step, pas); // le sequenceur avance
     }
 }
