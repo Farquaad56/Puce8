@@ -1,6 +1,7 @@
 //! Bus CPU : RAM 2 Ko, miroirs, open bus, stubs PPU/APU (E03b).
 // wiki: Open_bus ; wiki: NES_memory_map
 
+use crate::apu::Apu;
 use crate::cartridge::{Cartridge, RomError};
 use crate::controller::Controller;
 use crate::cpu::CpuBus;
@@ -24,6 +25,8 @@ pub struct Bus {
     pub dma: OamDma,
     /// Manettes standard $4016/$4017 (E24a2).
     pub controller: Controller,
+    /// APU $4000-$4017 (E30c1).
+    pub apu: Apu,
 }
 
 impl Bus {
@@ -36,6 +39,7 @@ impl Bus {
             cpu_cycles: 0,
             dma: OamDma::Idle,
             controller: Controller::new(),
+            apu: Apu::new(),
         }
     }
 
@@ -120,6 +124,8 @@ impl CpuBus for Bus {
                 self.open_bus = value;
                 value
             }
+            // E30c1 : etat APU ; bit 5 = open bus ; cette lecture ne modifie pas l'open bus.
+            0x4015 => (self.open_bus & 0x20) | self.apu.read_status(),
             // E24a2 : manettes ; bits 5-7 = open bus, puis l'octet lu devient l'open bus.
             0x4016 | 0x4017 => {
                 let value = self.controller.read(usize::from(addr & 1), self.open_bus);
@@ -161,6 +167,11 @@ impl CpuBus for Bus {
                 self.controller.write(value);
                 self.open_bus = value;
             }
+            // E30c1 : registres APU ($4014 = DMA et $4016 = manettes sont traites au-dessus).
+            0x4000..=0x4013 | 0x4015 | 0x4017 => {
+                self.apu.write_register(addr, value);
+                self.open_bus = value;
+            }
             // $4000-$401F : APU (stubs).
             0x4000..=0x401F => {
                 self.open_bus = value;
@@ -178,6 +189,7 @@ impl CpuBus for Bus {
             0x0000..=0x1FFF => self.ram[usize::from(addr & 0x07FF)],
             // $2000-$3FFF : PPU (miroir sur les 11 bits bas).
             0x2000..=0x3FFF => self.ppu.cpu_peek_register(addr & 7),
+            0x4015 => (self.open_bus & 0x20) | self.apu.peek_status(),
             0x4016 | 0x4017 => self.controller.peek(usize::from(addr & 1), self.open_bus),
             // $4000-$401F : APU (stubs).
             0x4000..=0x401F => self.open_bus,
@@ -190,7 +202,7 @@ impl CpuBus for Bus {
     }
 
     fn irq_line(&self) -> bool {
-        self.mapper.irq_pending() // E28b1 ; E30 : || APU
+        self.mapper.irq_pending() || self.apu.irq_line() // E28b1 + E30c1
     }
 }
 
@@ -315,5 +327,27 @@ mod tests {
         bus.cpu_cycles = 10; // cycle pair (get) : alignement -> 514
         bus.write(0x4014, 0x02);
         assert_eq!(run_dma(&mut bus), 514);
+    }
+
+    #[test]
+    fn bus_apu_4015_efface() {
+        let mut bus = Bus::for_test_with_prg(&[0xEA]);
+        bus.apu.frame.irq = true;
+        assert!(bus.irq_line());
+        assert_eq!(bus.peek(0x4015) & 0x40, 0x40); // peek : sans effet
+        assert_eq!(bus.read(0x4015) & 0x40, 0x40);
+        assert_eq!(bus.read(0x4015) & 0x40, 0); // la lecture efface F
+        assert!(!bus.irq_line());
+    }
+
+    #[test]
+    fn bus_apu_bits_longueur() {
+        let mut bus = Bus::for_test_with_prg(&[0xEA]);
+        bus.write(0x4015, 0x0F);
+        bus.write(0x4003, 0x08); // pulse 1 : longueur 254
+        bus.write(0x400F, 0x08); // bruit
+        assert_eq!(bus.read(0x4015) & 0x0F, 0x09);
+        bus.write(0x4015, 0x00);
+        assert_eq!(bus.read(0x4015) & 0x0F, 0);
     }
 }

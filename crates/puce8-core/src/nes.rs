@@ -48,6 +48,7 @@ impl Nes {
             self.cpu_or_dma_tick();
         }
         self.bus.mapper.cpu_cycle();
+        self.bus.apu.tick(); // E30c1
         self.bus.cpu_cycles += 1;
     }
 
@@ -71,10 +72,11 @@ impl Nes {
         }
     }
 
-    /// Reset a chaud : CPU puis PPU (E29a4) ; APU : E30.
+    /// Reset a chaud : CPU, PPU, APU (E29a4/E30c1).
     pub fn reset(&mut self) {
         self.cpu.reset();
         self.bus.ppu.reset();
+        self.bus.apu.reset(); // E30c1
     }
 
     /// Boutons d'une manette (port 0 = $4016, port 1 = $4017), poses par le frontend (E24a2).
@@ -255,6 +257,7 @@ mod tests {
     fn irq_mmc3_ligne_19() {
         let mut nes = Nes::from_rom(&rom_mmc3()).unwrap();
         nes.run_frame(); // s'arrete en (241, 1) : VBlank
+        nes.bus.write(0x4017, 0x40); // E30c1 : IRQ de trame APU inhibee (sinon elle arrive avant)
         nes.bus.write(0x2000, 0x08); // sprites en $1000, fond en $0000
         nes.bus.write(0x2001, 0x18); // rendu actif
         nes.bus.write(0xC000, 20); // latch

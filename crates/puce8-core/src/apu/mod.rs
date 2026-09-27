@@ -81,17 +81,21 @@ impl Apu {
         }
     }
 
-    /// Bits de $4015 : N/T/2/1 = longueur > 0 (IRQ de trame, bit 6 : E30c1).
+    /// Bits de $4015 : N/T/2/1 = longueur > 0, bit 6 = IRQ de trame (bit 5 = open bus, pose par le bus).
     fn status_bits(&self) -> u8 {
-        self.lengths
+        let longueurs = self
+            .lengths
             .iter()
             .enumerate()
-            .fold(0u8, |s, (i, l)| s | (u8::from(l.active()) << i))
+            .fold(0u8, |s, (i, l)| s | (u8::from(l.active()) << i));
+        longueurs | (u8::from(self.frame.irq) << 6)
     }
 
-    /// R $4015 (effacement de l'IRQ de trame : E30c1).
+    /// R $4015 : la lecture efface l'IRQ de trame.
     pub fn read_status(&mut self) -> u8 {
-        self.status_bits()
+        let s = self.status_bits();
+        self.frame.irq = false;
+        s
     }
 
     /// Lecture de $4015 sans effet de bord.
@@ -163,6 +167,18 @@ mod tests {
         ticks(&mut apu, 29828);
         assert!(apu.irq_line());
         apu.write_register(0x4017, 0x40); // I = 1 : efface
+        assert!(!apu.irq_line());
+    }
+
+    // ---------- E30c1 ----------
+
+    #[test]
+    fn lecture_4015_efface() {
+        let mut apu = Apu::new();
+        ticks(&mut apu, 29828);
+        assert_eq!(apu.peek_status() & 0x40, 0x40);
+        assert_eq!(apu.read_status() & 0x40, 0x40);
+        assert_eq!(apu.read_status() & 0x40, 0); // la lecture efface F
         assert!(!apu.irq_line());
     }
 }
