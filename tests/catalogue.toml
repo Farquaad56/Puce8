@@ -710,3 +710,13 @@ phase = "ppu"
 etape = "E19"
 frames = 120
 hash_attendu = "ed03a8650d043e21"
+
+# E21c3 : capture spritecans (sprites + fond, 600 images)
+
+[[rom]]
+chemin = "spritecans-2011/spritecans.nes"
+protocole = "image"
+phase = "ppu"
+etape = "E21"
+frames = 600
+hash_attendu = "c8551861e16421d0"
