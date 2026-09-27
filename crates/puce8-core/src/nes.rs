@@ -71,9 +71,10 @@ impl Nes {
         }
     }
 
-    /// Reinitialise le CPU (la PPU et le bus restent tels quels).
+    /// Reset a chaud : CPU puis PPU (E29a4) ; APU : E30.
     pub fn reset(&mut self) {
         self.cpu.reset();
+        self.bus.ppu.reset();
     }
 
     /// Boutons d'une manette (port 0 = $4016, port 1 = $4017), poses par le frontend (E24a2).

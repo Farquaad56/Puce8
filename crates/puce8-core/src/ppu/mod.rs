@@ -65,6 +65,8 @@ pub struct Ppu {
     pub sprite0_hit: bool,
     /// Open bus PPU avec decroissance (E22a2).
     pub open_bus: open_bus::DecayLatch,
+    /// E29a4 : apres un reset, $2000/$2001/$2005/$2006 ignores jusqu'en (261, 1).
+    pub reset_ignore: bool,
 }
 
 impl Default for Ppu {
@@ -100,6 +102,7 @@ impl Ppu {
             sprite_line: sprite_render::SpriteLine::default(),
             sprite0_hit: false,
             open_bus: open_bus::DecayLatch::default(),
+            reset_ignore: false,
         }
     }
 
@@ -131,6 +134,7 @@ impl Ppu {
                 self.nmi_suppressed = false; // fin du VBlank : nmi_line() redevient normale
                 self.sprite_overflow = false; // E20b2 : overflow remis a 0
                 self.sprite0_hit = false; // E21c1 : sprite 0 hit remis a 0
+                self.reset_ignore = false; // E29a4 : fin du 1er VBlank apres un reset
             }
             _ => {}
         }
@@ -367,6 +371,9 @@ impl Ppu {
     pub fn cpu_write_register(&mut self, reg: u16, v: u8, mapper: &mut dyn Mapper) {
         let r = usize::from(reg & 0x07);
         self.open_bus.write(v, self.frame); // E22a2 : toute ecriture recharge les 8 bits
+        if self.reset_ignore && matches!(r, 0 | 1 | 5 | 6) {
+            return; // E29a4 : ecriture ignoree apres un reset (jusqu'a la fin du 1er VBlank)
+        }
         if r == 7 {
             // $2007 : ecrit la memoire PPU a l'adresse v (io_latch mis a jour), puis increment.
             self.ppu_write(self.regs.v & 0x3FFF, v, mapper);
@@ -409,6 +416,18 @@ impl Ppu {
     /// Position courante : (ligne, point).
     pub fn position(&self) -> (u16, u16) {
         (self.line, self.point)
+    }
+
+    /// Reset a chaud (E29a4) : ctrl = mask = 0, w = 0, x = 0, buffer de lecture = 0 ;
+    /// $2000/$2001/$2005/$2006 ignores jusqu'a la fin du 1er VBlank (261, 1).
+    /// VBlank, OAM, palette et VRAM sont conserves.
+    pub fn reset(&mut self) {
+        self.regs.ctrl = 0;
+        self.regs.mask = 0;
+        self.regs.w = false;
+        self.regs.x = 0;
+        self.read_buffer = 0;
+        self.reset_ignore = true;
     }
 }
 
@@ -902,5 +921,29 @@ mod tests {
             ppu.tick(&mut espion);
         }
         assert!(espion.addrs.is_empty());
+    }
+
+    #[test]
+    fn reset_ppu() {
+        let mut bus = Bus::for_test_with_prg(&[0xA9]);
+        let mut ppu = Ppu::new();
+        ppu.cpu_write_register(0, 0x80, &mut (*bus.mapper));
+        ppu.cpu_write_register(1, 0x1E, &mut (*bus.mapper));
+        ppu.cpu_write_register(5, 0x7D, &mut (*bus.mapper)); // x = 5, w = 1
+        ppu.oam[0] = 0x42;
+        ppu.palette[0] = 0x21;
+        ppu.read_buffer = 0x99;
+        ppu.reset();
+        assert_eq!((ppu.regs.ctrl, ppu.regs.mask, ppu.regs.x), (0, 0, 0));
+        assert!(!ppu.regs.w);
+        assert_eq!(ppu.read_buffer, 0);
+        assert_eq!((ppu.oam[0], ppu.palette[0]), (0x42, 0x21)); // conserves
+        ppu.cpu_write_register(0, 0x80, &mut (*bus.mapper)); // ignoree
+        ppu.cpu_write_register(6, 0x21, &mut (*bus.mapper)); // ignoree : w reste 0
+        assert_eq!(ppu.regs.ctrl, 0);
+        assert!(!ppu.regs.w);
+        tick_to(&mut ppu, &mut bus, (261, 1)); // fin du 1er VBlank
+        ppu.cpu_write_register(0, 0x80, &mut (*bus.mapper));
+        assert_eq!(ppu.regs.ctrl, 0x80);
     }
 }
