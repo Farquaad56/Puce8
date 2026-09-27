@@ -57,6 +57,21 @@ pub fn load_rom(path: &str) -> Result<Nes, String> {
     Nes::from_rom(&bytes).map_err(|e| format!("ROM invalide {path} : {e:?}"))
 }
 
+/// Texte de la barre d'etat pour une ROM : nom du fichier + numero de mapper (E23a3).
+pub fn rom_label(path: &str) -> String {
+    let nom = std::path::Path::new(path)
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.to_string());
+    match std::fs::read(path)
+        .ok()
+        .and_then(|b| puce8_core::cartridge::Cartridge::from_bytes(&b).ok())
+    {
+        Some(c) => format!("{nom} - mapper {}", c.mapper_id),
+        None => nom,
+    }
+}
+
 /// Accumulateur de cadence : ajoute `dt` et renvoie le nombre d'images a emuler.
 /// Normal : 0 a MAX_CATCH_UP ; au-dela, le retard est abandonne (acc = 0).
 /// Turbo : TURBO_FRAMES, sans limite de temps (acc = 0).
@@ -147,5 +162,10 @@ mod tests {
     #[test]
     fn rom_invalide() {
         assert!(load_rom("n_existe_pas.nes").is_err());
+    }
+
+    #[test]
+    fn etiquette_rom_absente() {
+        assert_eq!(rom_label("dossier/n_existe_pas.nes"), "n_existe_pas.nes");
     }
 }
