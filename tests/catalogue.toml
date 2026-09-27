@@ -700,3 +700,13 @@ phase = "ppu"
 etape = "E18"
 frames = 60
 hash_attendu = "b821960a2b13a579"
+
+# E19a : capture image full_palette (palette + niveaux de gris)
+
+[[rom]]
+chemin = "full_palette/full_palette.nes"
+protocole = "image"
+phase = "ppu"
+etape = "E19"
+frames = 120
+hash_attendu = "ed03a8650d043e21"

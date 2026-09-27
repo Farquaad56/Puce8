@@ -261,7 +261,11 @@ impl Ppu {
             let value = if v < 0x3F00 {
                 self.read_buffer
             } else {
-                self.palette[Self::palette_index(v)] | (self.regs.io_latch & 0xC0)
+                palette::read_2007(
+                    self.palette[Self::palette_index(v)],
+                    self.regs.io_latch,
+                    self.regs.gris(),
+                )
             };
             // Une lecture palette charge aussi ppu_read(v - $1000) dans le buffer.
             let next = if v >= 0x3F00 { v - 0x1000 } else { v };
@@ -298,7 +302,11 @@ impl Ppu {
             return if v < 0x3F00 {
                 self.read_buffer
             } else {
-                self.palette[Self::palette_index(v)] | (self.regs.io_latch & 0xC0)
+                palette::read_2007(
+                    self.palette[Self::palette_index(v)],
+                    self.regs.io_latch,
+                    self.regs.gris(),
+                )
             };
         }
         if r == 4 {
@@ -658,6 +666,27 @@ mod tests {
             ppu.cpu_write_register(0x2007, 0x2A, &mut m);
             assert_eq!(ppu.palette[dst], 0x2A); // $3F1x est un miroir de $3F0x
         }
+    }
+
+    #[test]
+    fn gris_lecture_palette() {
+        let mut ppu = Ppu::new();
+        let mut m = MapperMem {
+            mem: [0; 0x2000],
+            mir: Mirroring::Horizontal,
+            last: None,
+        };
+        ppu.cpu_write_register(0x2006, 0x3F, &mut m);
+        ppu.cpu_write_register(0x2006, 0x01, &mut m); // v = $3F01
+        ppu.cpu_write_register(0x2007, 0x7A, &mut m); // palette[1] = 0x3A, io_latch = 0x7A
+        assert_eq!(ppu.palette[1], 0x3A);
+        ppu.regs.v = 0x3F01;
+        assert_eq!(ppu.cpu_read_register(0x2007, &mut m), 0x7A); // couleur : 0x3A | (0x7A & $C0)
+        ppu.regs.mask = 0x01; // mode niveaux de gris ($2001 bit 0)
+        ppu.regs.v = 0x3F01; // chaque lecture incremente v
+        assert_eq!(ppu.cpu_read_register(0x2007, &mut m), 0x30); // (0x3A | $40) & $30
+        ppu.regs.v = 0x3F01;
+        assert_eq!(ppu.cpu_peek_register(0x2007), 0x30); // peek sans effet de bord
     }
 
     #[test]

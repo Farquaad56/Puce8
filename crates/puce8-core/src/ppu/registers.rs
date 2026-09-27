@@ -109,6 +109,11 @@ impl Registers {
             _ => self.io_latch,
         }
     }
+
+    /// Mode niveaux de gris : bit 0 de $2001 (coherent avec couleur_pixel).
+    pub fn gris(&self) -> bool {
+        self.mask & 0x01 != 0
+    }
 }
 
 #[cfg(test)]
