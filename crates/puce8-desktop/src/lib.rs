@@ -2,5 +2,6 @@
 
 pub mod app;
 pub mod gui;
+pub mod input;
 pub mod overlay;
 pub mod viewers;
