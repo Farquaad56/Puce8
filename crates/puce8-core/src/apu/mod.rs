@@ -10,6 +10,7 @@ pub mod sweep;
 
 use frame_counter::FrameCounter;
 use length::LengthCounter;
+use pulse::Pulse;
 
 /// APU.
 pub struct Apu {
@@ -17,6 +18,8 @@ pub struct Apu {
     pub lengths: [LengthCounter; 4],
     /// Frame counter (E30b2).
     pub frame: FrameCounter,
+    /// Pulses 1 et 2 (E31b2).
+    pub pulses: [Pulse; 2],
     /// Cycles CPU depuis la mise sous tension.
     cycle: u64,
 }
@@ -37,6 +40,7 @@ impl Apu {
         Apu {
             lengths: [LengthCounter::default(); 4],
             frame: FrameCounter::new(),
+            pulses: [Pulse::new(true), Pulse::new(false)],
             cycle: 0,
         }
     }
@@ -44,16 +48,34 @@ impl Apu {
     /// Un cycle CPU : timers des canaux, puis frame counter.
     pub fn tick(&mut self) {
         self.cycle += 1;
+        if self.cycle.is_multiple_of(2) {
+            for p in &mut self.pulses {
+                p.clock_timer(); // les pulses avancent 1 cycle CPU sur 2
+            }
+        }
         let ev = self.frame.tick();
+        if ev.quarter {
+            self.clock_quarter();
+        }
         if ev.half {
             self.clock_half();
         }
     }
 
-    /// Horloge "demi" : compteurs de longueur (sweeps : E31b2).
+    /// Horloge "quart" : enveloppes et compteur lineaire.
+    fn clock_quarter(&mut self) {
+        for p in &mut self.pulses {
+            p.envelope.clock();
+        }
+    }
+
+    /// Horloge "demi" : compteurs de longueur et sweeps.
     fn clock_half(&mut self) {
         for l in &mut self.lengths {
             l.clock();
+        }
+        for p in &mut self.pulses {
+            p.clock_half();
         }
     }
 
@@ -61,6 +83,7 @@ impl Apu {
     pub fn write_register(&mut self, addr: u16, v: u8) {
         self.write_length(addr, v);
         match addr {
+            0x4000..=0x4007 => self.pulses[canal(addr)].write(addr, v),
             0x4015 => self.write_status(v),
             0x4017 => self.frame.write(v, self.cycle.is_multiple_of(2)),
             _ => {}
@@ -114,6 +137,17 @@ impl Apu {
     /// Reset a chaud : $4015 = 0 (le reste en E35).
     pub fn reset(&mut self) {
         self.write_status(0);
+    }
+
+    /// Sorties 0-15 apres compteurs de longueur : [pulse 1, pulse 2, triangle, bruit] (mixeur : E34).
+    pub fn outputs(&self) -> [u8; 4] {
+        let coupe = |i: usize, v: u8| if self.lengths[i].active() { v } else { 0 };
+        [
+            coupe(0, self.pulses[0].output()),
+            coupe(1, self.pulses[1].output()),
+            0, // triangle : E32a2
+            0, // bruit : E32b2
+        ]
     }
 }
 
@@ -183,5 +217,25 @@ mod tests {
         assert_eq!(apu.read_status() & 0x40, 0x40);
         assert_eq!(apu.read_status() & 0x40, 0); // la lecture efface F
         assert!(!apu.irq_line());
+    }
+
+    // ---------- E31b2 ----------
+
+    #[test]
+    fn pulse_via_apu() {
+        let mut apu = Apu::new();
+        apu.write_register(0x4015, 0x01);
+        apu.write_register(0x4000, 0xBF); // duty 50 %, volume constant 15
+        apu.write_register(0x4002, 0xFD); // periode 253
+        apu.write_register(0x4003, 0x08); // longueur 254
+        let mut crete = 0;
+        for _ in 0..10_000 {
+            apu.tick();
+            crete = crete.max(apu.outputs()[0]);
+        }
+        assert_eq!(crete, 15);
+        apu.write_register(0x4015, 0x00); // longueur a 0 : muet
+        ticks(&mut apu, 10_000);
+        assert_eq!(apu.outputs()[0], 0);
     }
 }
