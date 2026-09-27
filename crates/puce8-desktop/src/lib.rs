@@ -3,3 +3,4 @@
 pub mod app;
 pub mod gui;
 pub mod overlay;
+pub mod viewers;

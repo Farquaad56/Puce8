@@ -1,7 +1,7 @@
 //! Fenetre eframe/egui : ecran, cadence, barre d'etat (E23a2) ; menus, raccourcis,
-//! ouverture de ROM et glisser-deposer (E23a3).
+//! ouverture de ROM et glisser-deposer (E23a3) ; fenetres de debogage (E23b2/E23b3).
 
-use crate::app;
+use crate::{app, viewers};
 use eframe::egui;
 use puce8_core::nes::Nes;
 use std::time::Instant;
@@ -23,9 +23,8 @@ pub struct Puce8App {
     open_dialog: bool,
     open_path: String,
     error: Option<String>,
-    /// E23a3 : cases du menu Debogage (les fenetres arrivent en E23b).
-    pub show_tile_viewer: bool,
-    pub show_tilemap_viewer: bool,
+    /// E23b2 : fenetre de debogage (le Tilemap Viewer arrive en E23b3).
+    tiles: viewers::TileViewer,
 }
 
 impl Puce8App {
@@ -44,8 +43,7 @@ impl Puce8App {
             open_dialog: false,
             open_path: String::new(),
             error: None,
-            show_tile_viewer: false,
-            show_tilemap_viewer: false,
+            tiles: viewers::TileViewer::default(),
         }
     }
 
@@ -112,13 +110,17 @@ impl Puce8App {
         if ctx.egui_wants_keyboard_input() {
             return;
         }
-        let (esc, f5, p) = ctx.input(|i| {
+        let (esc, f5, p, f1) = ctx.input(|i| {
             (
                 i.key_pressed(egui::Key::Escape),
                 i.key_pressed(egui::Key::F5),
                 i.key_pressed(egui::Key::P),
+                i.key_pressed(egui::Key::F1),
             )
         });
+        if f1 {
+            self.tiles.open = !self.tiles.open;
+        }
         if esc {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
@@ -176,8 +178,8 @@ impl Puce8App {
                 }
             });
             ui.menu_button("Debogage", |ui| {
-                ui.checkbox(&mut self.show_tile_viewer, "Tile Viewer (F1)");
-                ui.checkbox(&mut self.show_tilemap_viewer, "Tilemap Viewer (F2)");
+                ui.checkbox(&mut self.tiles.open, "Tile Viewer (F1)");
+                ui.label("Tilemap Viewer (F2) : E23b3");
             });
         });
     }
@@ -247,6 +249,13 @@ impl eframe::App for Puce8App {
             });
         });
         self.open_window(&ctx);
+        if let Some(nes) = self.nes.as_ref() {
+            // Une fois par image emulee (et toujours en pause) ; fenetre fermee = aucun calcul.
+            if new_frame || self.paused {
+                self.tiles.refresh(&ctx, nes);
+            }
+            self.tiles.show(&ctx);
+        }
         ctx.request_repaint();
     }
 }
