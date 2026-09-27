@@ -49,6 +49,7 @@ impl Nes {
         }
         self.bus.mapper.cpu_cycle();
         self.bus.apu.tick(); // E30c1
+        self.bus.poll_dmc_dma(); // E33b2
         self.bus.cpu_cycles += 1;
     }
 
@@ -294,5 +295,38 @@ mod tests {
     fn nes_nrom_sans_batterie() {
         let nes = Nes::from_rom(&rom_minimale()).unwrap();
         assert!(nes.battery_ram().is_none());
+    }
+
+    // ---------- E33b2 : DMC DMA dans la machine ----------
+
+    #[test]
+    fn dmc_dma_cout() {
+        // NOP partout ; DMC au debit maximal ($4010 = $0F : 54 cycles par bit, 432 par octet).
+        let mut nes = Nes::from_rom(&rom_minimale()).unwrap();
+        for _ in 0..7 {
+            nes.tick(); // sequence de reset
+        }
+        nes.bus.write(0x4010, 0x0F);
+        nes.bus.write(0x4013, 0x01); // 17 octets
+        nes.bus.write(0x4015, 0x10);
+        let mut voles = 0u64;
+        for _ in 0..4000 {
+            if nes.bus.dma_halts_cpu(nes.cpu.next_access_is_read()) {
+                voles += 1;
+            }
+            nes.tick();
+        }
+        while nes.bus.dmc_dma != crate::dma::DmcDma::Idle {
+            if nes.bus.dma_halts_cpu(nes.cpu.next_access_is_read()) {
+                voles += 1; // termine la DMA en cours
+            }
+            nes.tick();
+        }
+        let octets = u64::from(17 - nes.bus.apu.dmc.remaining);
+        assert!(octets >= 5, "octets = {octets}");
+        assert!(
+            (3 * octets..=4 * octets).contains(&voles),
+            "voles = {voles}, octets = {octets}"
+        );
     }
 }
