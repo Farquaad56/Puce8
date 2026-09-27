@@ -5,6 +5,7 @@ use crate::cartridge::Cartridge;
 use crate::mapper::{ChrMemory, Mapper, Mirroring};
 
 const PRG_BANK: usize = 8 * 1024;
+const CHR_BANK: usize = 1024;
 const PRG_RAM_MIN: usize = 8 * 1024;
 
 /// Cartouche MMC3 (TxROM).
@@ -74,6 +75,32 @@ impl Mmc3 {
         self.prg_rom.get(off).copied()
     }
 
+    /// Banque CHR de 1 Ko vue a `addr` ($0000-$1FFF) (E27a2).
+    fn chr_bank(&self, addr: u16) -> usize {
+        let slot = usize::from((addr >> 10) & 7);
+        // Inversion CHR (bit 7 de $8000) : les moities $0000 et $1000 sont echangees.
+        let s = if self.bank_select & 0x80 != 0 {
+            slot ^ 4
+        } else {
+            slot
+        };
+        let r = &self.regs;
+        usize::from(match s {
+            0 => r[0] & 0xFE,
+            1 => r[0] | 1,
+            2 => r[1] & 0xFE,
+            3 => r[1] | 1,
+            4 => r[2],
+            5 => r[3],
+            6 => r[4],
+            _ => r[5],
+        })
+    }
+
+    fn chr_offset(&self, addr: u16) -> usize {
+        self.chr_bank(addr) * CHR_BANK + usize::from(addr & 0x03FF)
+    }
+
     fn ram_offset(&self, addr: u16) -> usize {
         usize::from(addr - 0x6000) % self.prg_ram.len()
     }
@@ -117,17 +144,17 @@ impl Mapper for Mmc3 {
         }
     }
 
-    // CHR non banke pour l'instant (banques de 1 Ko : E27a2).
     fn ppu_read(&mut self, addr: u16) -> u8 {
-        self.chr.read(usize::from(addr))
+        self.chr.read(self.chr_offset(addr))
     }
 
     fn ppu_write(&mut self, addr: u16, value: u8) {
-        self.chr.write(usize::from(addr), value);
+        let o = self.chr_offset(addr);
+        self.chr.write(o, value);
     }
 
     fn ppu_peek(&self, addr: u16) -> u8 {
-        self.chr.read(usize::from(addr))
+        self.chr.read(self.chr_offset(addr))
     }
 
     fn mirroring(&self) -> Mirroring {
@@ -194,5 +221,28 @@ mod tests {
         let mut m = Mmc3::new(cart(16, 8));
         set_reg(&mut m, 0, 6, 19); // 19 % 16 = 3
         assert_eq!(m.cpu_read(0x8000), Some(3));
+    }
+
+    // ---------- E27a2 ----------
+
+    #[test]
+    fn chr_mode0() {
+        let mut m = Mmc3::new(cart(16, 32));
+        set_reg(&mut m, 0, 0, 5); // R0 : 2 Ko, bit 0 ignore -> 4 et 5
+        set_reg(&mut m, 0, 2, 9);
+        assert_eq!(m.ppu_read(0x0000), 4);
+        assert_eq!(m.ppu_read(0x0400), 5);
+        assert_eq!(m.ppu_read(0x1000), 9);
+        assert_eq!(m.ppu_peek(0x13FF), 9);
+    }
+
+    #[test]
+    fn chr_mode1() {
+        let mut m = Mmc3::new(cart(16, 32));
+        set_reg(&mut m, 0x80, 2, 7); // inversion : R2 en $0000
+        set_reg(&mut m, 0x80, 0, 5); // R0 en $1000-$17FF
+        assert_eq!(m.ppu_read(0x0000), 7);
+        assert_eq!(m.ppu_read(0x1000), 4);
+        assert_eq!(m.ppu_read(0x1400), 5);
     }
 }
