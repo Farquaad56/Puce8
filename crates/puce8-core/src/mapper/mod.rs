@@ -1,7 +1,9 @@
 //! Mappers de cartouche : trait commun, memoire CHR partagee, fabrique (ARCHI par. A3).
 // wiki: NROM ; wiki: INES_Mapper_000
 
+pub mod cnrom;
 pub mod nrom;
+pub mod uxrom;
 
 use crate::cartridge::{Cartridge, RomError};
 
@@ -96,10 +98,12 @@ impl ChrMemory {
     }
 }
 
-/// Fabrique : mapper a partir de l'en-tete de la cartouche (NROM pour l'instant).
+/// Fabrique : mapper a partir de l'en-tete de la cartouche (NROM, UxROM, CNROM).
 pub fn create_mapper(cart: Cartridge) -> Result<Box<dyn Mapper>, RomError> {
     match cart.mapper_id {
         0 => Ok(Box::new(nrom::Nrom::new(cart))),
+        2 => Ok(Box::new(uxrom::Uxrom::new(cart))),
+        3 => Ok(Box::new(cnrom::Cnrom::new(cart))),
         n => Err(RomError::Unsupported(format!("mapper {n}"))),
     }
 }
