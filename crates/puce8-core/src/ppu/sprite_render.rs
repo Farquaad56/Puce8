@@ -21,6 +21,46 @@ pub struct SpriteLine {
     pub count: u8,
 }
 
+/// Resultat de la composition des sprites a un x donne (E21b1).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct SpritePixel {
+    /// Couleur 0-3 du sprite gagnant (0 = aucun sprite opaque).
+    pub px: u8,
+    /// Palette de sprite 0-3 (attr & 3) du gagnant.
+    pub pal: u8,
+    /// Gagnant derriere le fond (attr & 0x20).
+    pub behind: bool,
+    /// Le sprite 0 a un pixel opaque a ce x, MEME s'il ne gagne pas (pour le sprite 0 hit, E21c1).
+    pub sprite0: bool,
+}
+
+impl SpriteLine {
+    /// Composition au x donne : le PREMIER emplacement opaque (ordre 0 a 7) l'emporte.
+    pub fn pixel(&self, x: u8) -> SpritePixel {
+        let mut out = SpritePixel::default();
+        for slot in &self.slots[..usize::from(self.count)] {
+            let dx = i16::from(x) - i16::from(slot.x);
+            if !(0..8).contains(&dx) {
+                continue;
+            }
+            let bit = 7 - dx as u8;
+            let px = (((slot.pat_hi >> bit) & 1) << 1) | ((slot.pat_lo >> bit) & 1);
+            if px == 0 {
+                continue; // transparent : l'emplacement suivant peut gagner
+            }
+            if slot.is_sprite0 {
+                out.sprite0 = true;
+            }
+            if out.px == 0 {
+                out.px = px;
+                out.pal = slot.attr & 3;
+                out.behind = slot.attr & 0x20 != 0;
+            }
+        }
+        out
+    }
+}
+
 /// Adresse du plan BAS du motif d'un sprite (le plan haut est a +8).
 /// `row` = ligne dans le sprite (0 a height - 1) AVANT flip vertical ; `attr & 0x80` = flip vertical.
 /// - 8x8 : table choisie par `ctrl & 0x08` ;
@@ -259,5 +299,67 @@ mod tests {
         let mut m = espion();
         jusqu_a(&mut ppu, &mut m, (261, 320));
         assert_eq!(ppu.sprite_line.count, 0);
+    }
+
+    // ---------- E21b1 : composition pure (SpriteLine::pixel) ----------
+
+    /// Emplacement plein (couleur 1 sur 8 pixels) a l'abscisse x.
+    fn plein(x: u8, attr: u8, sprite0: bool) -> SpriteSlot {
+        SpriteSlot {
+            pat_lo: 0xFF,
+            pat_hi: 0x00,
+            attr,
+            x,
+            is_sprite0: sprite0,
+        }
+    }
+
+    #[test]
+    fn pixel_dans_les_8_colonnes() {
+        let mut l = SpriteLine::default();
+        l.slots[0] = plein(100, 0x02, false);
+        l.count = 1;
+        assert_eq!(l.pixel(99).px, 0);
+        assert_eq!(l.pixel(100).px, 1);
+        assert_eq!(l.pixel(107).px, 1);
+        assert_eq!(l.pixel(108).px, 0);
+        assert_eq!(l.pixel(100).pal, 2);
+    }
+
+    #[test]
+    fn priorite_index() {
+        let mut l = SpriteLine::default();
+        l.slots[0] = plein(100, 0x01, true); // sprite 0, palette 1
+        l.slots[1] = plein(100, 0x02, false); // palette 2
+        l.count = 2;
+        let p = l.pixel(103);
+        assert_eq!((p.px, p.pal), (1, 1)); // l'emplacement 0 est visible
+        assert!(p.sprite0);
+    }
+
+    #[test]
+    fn transparent_laisse_passer() {
+        let mut l = SpriteLine::default();
+        l.slots[0] = SpriteSlot {
+            pat_lo: 0x0F, // colonnes 4-7 seulement
+            pat_hi: 0x00,
+            attr: 0x01,
+            x: 100,
+            is_sprite0: true,
+        };
+        l.slots[1] = plein(100, 0x23, false); // derriere le fond, palette 3
+        l.count = 2;
+        let p = l.pixel(101); // colonne 1 : emplacement 0 transparent
+        assert_eq!((p.px, p.pal, p.behind), (1, 3, true));
+        assert!(!p.sprite0); // le sprite 0 n'est pas opaque ici
+        assert!(l.pixel(105).sprite0);
+    }
+
+    #[test]
+    fn count_limite_les_emplacements() {
+        let mut l = SpriteLine::default();
+        l.slots[3] = plein(10, 0, false);
+        l.count = 3; // l'emplacement 3 est ignore
+        assert_eq!(l.pixel(12).px, 0);
     }
 }
