@@ -17,8 +17,11 @@ pub struct Mmc3 {
     bank_select: u8,
     /// R0-R7, ecrits par $8001.
     regs: [u8; 8],
-    /// Mirroring de l'en-tete ($A000 : E27a3).
+    /// Mirroring courant ($A000) ; four-screen (en-tete) : fixe.
     mirroring: Mirroring,
+    /// $A001 : bit 7 = PRG-RAM active, bit 6 = protegee en ecriture (E27a3).
+    ram_protect: u8,
+    has_battery: bool,
 }
 
 impl Mmc3 {
@@ -27,10 +30,12 @@ impl Mmc3 {
         Mmc3 {
             prg_ram: vec![0; cart.prg_ram_size.max(PRG_RAM_MIN)],
             mirroring: cart.mirroring,
+            has_battery: cart.has_battery,
             prg_rom: cart.prg_rom,
             chr,
             bank_select: 0,
             regs: [0; 8],
+            ram_protect: 0x80, // SIMPLIFICATION: PRG-RAM active et inscriptible a la mise sous tension
         }
     }
 
@@ -101,6 +106,16 @@ impl Mmc3 {
         self.chr_bank(addr) * CHR_BANK + usize::from(addr & 0x03FF)
     }
 
+    /// PRG-RAM lisible : bit 7 de $A001 (E27a3).
+    fn ram_enabled(&self) -> bool {
+        self.ram_protect & 0x80 != 0
+    }
+
+    /// PRG-RAM inscriptible : active ET non protegee (bit 6 de $A001 a 0).
+    fn ram_writable(&self) -> bool {
+        self.ram_protect & 0xC0 == 0x80
+    }
+
     fn ram_offset(&self, addr: u16) -> usize {
         usize::from(addr - 0x6000) % self.prg_ram.len()
     }
@@ -108,7 +123,7 @@ impl Mmc3 {
     /// Lecture sans effet de bord : meme valeur que `cpu_read`.
     fn read_at(&self, addr: u16) -> Option<u8> {
         match addr {
-            0x6000..=0x7FFF => Some(self.prg_ram[self.ram_offset(addr)]),
+            0x6000..=0x7FFF if self.ram_enabled() => Some(self.prg_ram[self.ram_offset(addr)]),
             0x8000..=0xFFFF => self.prg_read(addr),
             _ => None,
         }
@@ -119,7 +134,17 @@ impl Mmc3 {
         match addr & 0xE001 {
             0x8000 => self.bank_select = value,
             0x8001 => self.regs[usize::from(self.bank_select & 7)] = value,
-            _ => {} // $A000-$A001 : E27a3 ; $C000-$E001 : IRQ (E28a1)
+            0xA000 => {
+                if self.mirroring != Mirroring::FourScreen {
+                    self.mirroring = if value & 1 == 0 {
+                        Mirroring::Vertical
+                    } else {
+                        Mirroring::Horizontal
+                    };
+                }
+            }
+            0xA001 => self.ram_protect = value,
+            _ => {} // $C000-$E001 : IRQ (E28a1)
         }
     }
 }
@@ -135,7 +160,7 @@ impl Mapper for Mmc3 {
 
     fn cpu_write(&mut self, addr: u16, value: u8) {
         match addr {
-            0x6000..=0x7FFF => {
+            0x6000..=0x7FFF if self.ram_writable() => {
                 let o = self.ram_offset(addr);
                 self.prg_ram[o] = value;
             }
@@ -159,6 +184,19 @@ impl Mapper for Mmc3 {
 
     fn mirroring(&self) -> Mirroring {
         self.mirroring
+    }
+
+    fn battery_ram(&self) -> Option<&[u8]> {
+        if self.has_battery {
+            Some(self.prg_ram.as_slice())
+        } else {
+            None
+        }
+    }
+
+    fn load_battery_ram(&mut self, data: &[u8]) {
+        let n = data.len().min(self.prg_ram.len());
+        self.prg_ram[..n].copy_from_slice(&data[..n]);
     }
 }
 
@@ -244,5 +282,45 @@ mod tests {
         assert_eq!(m.ppu_read(0x0000), 7);
         assert_eq!(m.ppu_read(0x1000), 4);
         assert_eq!(m.ppu_read(0x1400), 5);
+    }
+
+    // ---------- E27a3 ----------
+
+    #[test]
+    fn mirroring() {
+        let mut m = Mmc3::new(cart(16, 8));
+        assert_eq!(m.mirroring(), Mirroring::Vertical); // en-tete
+        m.cpu_write(0xA000, 1);
+        assert_eq!(m.mirroring(), Mirroring::Horizontal);
+        m.cpu_write(0xBFFE, 0); // miroir de $A000 (adresse paire)
+        assert_eq!(m.mirroring(), Mirroring::Vertical);
+        let mut c = cart(16, 8);
+        c.mirroring = Mirroring::FourScreen;
+        let mut m = Mmc3::new(c);
+        m.cpu_write(0xA000, 1); // ignore en four-screen
+        assert_eq!(m.mirroring(), Mirroring::FourScreen);
+    }
+
+    #[test]
+    fn prg_ram_protect() {
+        let mut m = Mmc3::new(cart(16, 8));
+        m.cpu_write(0x6000, 0x11); // mise sous tension : active, inscriptible
+        assert_eq!(m.cpu_read(0x6000), Some(0x11));
+        m.cpu_write(0xA001, 0xC0); // protegee en ecriture
+        m.cpu_write(0x6000, 0x22);
+        assert_eq!(m.cpu_read(0x6000), Some(0x11));
+        m.cpu_write(0xA001, 0x00); // desactivee : open bus
+        assert_eq!(m.cpu_read(0x6000), None);
+        m.cpu_write(0xA001, 0x80);
+        m.cpu_write(0x6000, 0x33);
+        assert_eq!(m.cpu_read(0x6000), Some(0x33));
+    }
+
+    #[test]
+    fn batterie() {
+        let mut c = cart(16, 8);
+        c.has_battery = true;
+        assert_eq!(Mmc3::new(c).battery_ram().map(|r| r.len()), Some(8 * 1024));
+        assert!(Mmc3::new(cart(16, 8)).battery_ram().is_none());
     }
 }
