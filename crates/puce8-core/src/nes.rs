@@ -225,4 +225,39 @@ mod tests {
             assert_eq!(nes.peek(0x0200), n); // exactement une NMI par image
         }
     }
+
+    // ---------- E28b1 : IRQ MMC3 sur le bus ----------
+
+    /// ROM MMC3 (mapper 4) : PRG 32 Ko, CHR 8 Ko ; $E000 : JMP $E000 (banque fixe), RESET = $E000.
+    fn rom_mmc3() -> Vec<u8> {
+        let mut rom = vec![0x4E, 0x45, 0x53, 0x1A, 0x02, 0x01, 0x40, 0x00];
+        rom.extend_from_slice(&[0; 8]);
+        let mut prg = vec![0xEA; 32 * 1024];
+        prg[0x6000..0x6003].copy_from_slice(&[0x4C, 0x00, 0xE0]);
+        prg[0x7FFC..0x7FFE].copy_from_slice(&[0x00, 0xE0]);
+        rom.extend(prg);
+        rom.extend(vec![0; 8 * 1024]);
+        rom
+    }
+
+    #[test]
+    fn irq_mmc3_ligne_19() {
+        let mut nes = Nes::from_rom(&rom_mmc3()).unwrap();
+        nes.run_frame(); // s'arrete en (241, 1) : VBlank
+        nes.bus.write(0x2000, 0x08); // sprites en $1000, fond en $0000
+        nes.bus.write(0x2001, 0x18); // rendu actif
+        nes.bus.write(0xC000, 20); // latch
+        nes.bus.write(0xC001, 0); // rechargement au prochain clock (ligne 261)
+        nes.bus.write(0xE001, 0); // IRQ activee
+        assert!(!nes.bus.irq_line());
+        let mut n = 0;
+        while !nes.bus.irq_line() {
+            nes.tick();
+            n += 1;
+            assert!(n < 100_000, "IRQ jamais levee");
+        }
+        let (line, point) = nes.bus.ppu.position();
+        assert_eq!(line, 19, "IRQ en ({line}, {point})");
+        assert!((255..=270).contains(&point), "IRQ en ({line}, {point})");
+    }
 }

@@ -190,7 +190,7 @@ impl CpuBus for Bus {
     }
 
     fn irq_line(&self) -> bool {
-        false // E28 (MMC3) / E30 (APU) : plus tard.
+        self.mapper.irq_pending() // E28b1 ; E30 : || APU
     }
 }
 
