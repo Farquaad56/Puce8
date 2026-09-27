@@ -2,6 +2,7 @@
 //! bruit (E32). DMC : E33.
 // wiki: APU
 
+pub mod frame_counter;
 pub mod length;
 
 use length::LengthCounter;
