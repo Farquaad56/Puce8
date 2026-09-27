@@ -1,5 +1,5 @@
 //! APU 2A03 : compteurs de longueur, frame counter, $4015 (E30) ; pulses (E31) ; triangle et
-//! bruit (E32). DMC : E33.
+//! bruit (E32) ; DMC (E33).
 // wiki: APU
 
 pub mod dmc;
@@ -11,6 +11,7 @@ pub mod pulse;
 pub mod sweep;
 pub mod triangle;
 
+use dmc::Dmc;
 use frame_counter::FrameCounter;
 use length::LengthCounter;
 use noise::Noise;
@@ -29,6 +30,8 @@ pub struct Apu {
     pub triangle: Triangle,
     /// Bruit (E32b2).
     pub noise: Noise,
+    /// DMC (E33a3).
+    pub dmc: Dmc,
     /// Cycles CPU depuis la mise sous tension.
     cycle: u64,
 }
@@ -52,6 +55,7 @@ impl Apu {
             pulses: [Pulse::new(true), Pulse::new(false)],
             triangle: Triangle::default(),
             noise: Noise::new(),
+            dmc: Dmc::new(),
             cycle: 0,
         }
     }
@@ -61,6 +65,7 @@ impl Apu {
         self.cycle += 1;
         self.triangle.clock_timer(self.lengths[2].active());
         self.noise.clock_timer();
+        self.dmc.clock_timer();
         if self.cycle.is_multiple_of(2) {
             for p in &mut self.pulses {
                 p.clock_timer(); // les pulses avancent 1 cycle CPU sur 2
@@ -101,6 +106,7 @@ impl Apu {
             0x4000..=0x4007 => self.pulses[canal(addr)].write(addr, v),
             0x4008..=0x400B => self.triangle.write(addr, v),
             0x400C..=0x400F => self.noise.write(addr, v),
+            0x4010..=0x4013 => self.dmc.write(addr, v),
             0x4015 => self.write_status(v),
             0x4017 => self.frame.write(v, self.cycle.is_multiple_of(2)),
             _ => {}
@@ -117,21 +123,27 @@ impl Apu {
         }
     }
 
-    /// W $4015 `---D NT21` : active/desactive les canaux (DMC : E33).
+    /// W $4015 `---D NT21` : active/desactive les canaux ; efface l'IRQ du DMC.
     fn write_status(&mut self, v: u8) {
         for (i, l) in self.lengths.iter_mut().enumerate() {
             l.set_enabled(v & (1 << i) != 0);
         }
+        self.dmc.set_enabled(v & 0x10 != 0);
+        self.dmc.irq = false;
     }
 
-    /// Bits de $4015 : N/T/2/1 = longueur > 0, bit 6 = IRQ de trame (bit 5 = open bus, pose par le bus).
+    /// Bits de $4015 `IF-D NT21` : I = IRQ DMC, F = IRQ de trame, D = DMC actif, N/T/2/1 = longueur > 0
+    /// (bit 5 = open bus, pose par le bus).
     fn status_bits(&self) -> u8 {
         let longueurs = self
             .lengths
             .iter()
             .enumerate()
             .fold(0u8, |s, (i, l)| s | (u8::from(l.active()) << i));
-        longueurs | (u8::from(self.frame.irq) << 6)
+        longueurs
+            | (u8::from(self.dmc.remaining > 0) << 4)
+            | (u8::from(self.frame.irq) << 6)
+            | (u8::from(self.dmc.irq) << 7)
     }
 
     /// R $4015 : la lecture efface l'IRQ de trame.
@@ -146,9 +158,19 @@ impl Apu {
         self.status_bits()
     }
 
-    /// Ligne IRQ de l'APU (niveau) : IRQ de trame (DMC : E33).
+    /// Ligne IRQ de l'APU (niveau) : IRQ de trame ou IRQ du DMC.
     pub fn irq_line(&self) -> bool {
-        self.frame.irq
+        self.frame.irq || self.dmc.irq
+    }
+
+    /// Adresse demandee par le lecteur du DMC (buffer vide), pour la DMC DMA du bus (E33b1).
+    pub fn dmc_dma_request(&self) -> Option<u16> {
+        self.dmc.dma_request()
+    }
+
+    /// Octet lu par la DMC DMA.
+    pub fn dmc_dma_complete(&mut self, v: u8) {
+        self.dmc.dma_complete(v);
     }
 
     /// Reset a chaud : $4015 = 0 (le reste en E35).
@@ -156,14 +178,15 @@ impl Apu {
         self.write_status(0);
     }
 
-    /// Sorties 0-15 apres compteurs de longueur : [pulse 1, pulse 2, triangle, bruit] (mixeur : E34).
-    pub fn outputs(&self) -> [u8; 4] {
+    /// Sorties apres compteurs de longueur : [pulse 1, pulse 2, triangle, bruit] (0-15), DMC (0-127).
+    pub fn outputs(&self) -> [u8; 5] {
         let coupe = |i: usize, v: u8| if self.lengths[i].active() { v } else { 0 };
         [
             coupe(0, self.pulses[0].output()),
             coupe(1, self.pulses[1].output()),
-            self.triangle.output(), // longueur a 0 : sequenceur fige (clock_timer), sortie garbee
+            self.triangle.output(), // longueur a 0 : sequenceur fige (clock_timer), sortie gardee
             coupe(3, self.noise.output()),
+            self.dmc.output(),
         ]
     }
 }
@@ -286,5 +309,24 @@ mod tests {
             vus[usize::from(apu.outputs()[3])] = true;
         }
         assert!(vus[0] && vus[15]); // alterne entre 0 et 15
+    }
+
+    // ---------- E33a3 ----------
+
+    #[test]
+    fn dmc_via_apu() {
+        let mut apu = Apu::new();
+        apu.write_register(0x4011, 0x40); // niveau 64
+        assert_eq!(apu.outputs()[4], 64);
+        apu.write_register(0x4010, 0x80); // IRQ activee
+        apu.write_register(0x4013, 0x00); // 1 octet
+        apu.write_register(0x4015, 0x10);
+        assert_eq!(apu.peek_status() & 0x10, 0x10); // D : octets restants
+        assert_eq!(apu.dmc_dma_request(), Some(0xC000));
+        apu.dmc_dma_complete(0xAA);
+        assert_eq!(apu.peek_status() & 0x90, 0x80); // plus d'octet, IRQ DMC
+        assert!(apu.irq_line());
+        apu.write_register(0x4015, 0x00); // efface l'IRQ du DMC
+        assert!(!apu.irq_line());
     }
 }
