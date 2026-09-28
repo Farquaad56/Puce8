@@ -17,3 +17,5 @@ tests/
 scripts/
 # Journal de l'agent codeur.
 notes/
+# Configuration locale des manettes (assistant F4 de puce8-desktop).
+puce8-manettes.txt

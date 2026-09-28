@@ -16,14 +16,16 @@ pub struct Args {
     pub rom: Option<String>,
     pub scale: u32,
     pub headless_frames: Option<u32>,
+    pub no_audio: bool,
 }
 
-/// `puce8-desktop [rom.nes] [--scale N] [--headless-frames N]`.
+/// `puce8-desktop [rom.nes] [--scale N] [--headless-frames N] [--no-audio]`.
 pub fn parse_args(args: &[String]) -> Result<Args, String> {
     let mut out = Args {
         rom: None,
         scale: 3,
         headless_frames: None,
+        no_audio: false,
     };
     let mut i = 0;
     while i < args.len() {
@@ -40,6 +42,10 @@ pub fn parse_args(args: &[String]) -> Result<Args, String> {
                     out.headless_frames = Some(n);
                 }
                 i += 2;
+            }
+            "--no-audio" => {
+                out.no_audio = true;
+                i += 1;
             }
             a if a.starts_with("--") => return Err(format!("option inconnue : {a}")),
             a => {
@@ -167,5 +173,11 @@ mod tests {
     #[test]
     fn etiquette_rom_absente() {
         assert_eq!(rom_label("dossier/n_existe_pas.nes"), "n_existe_pas.nes");
+    }
+
+    #[test]
+    fn option_sans_son() {
+        assert!(parse_args(&s(&["jeu.nes", "--no-audio"])).unwrap().no_audio);
+        assert!(!parse_args(&s(&["jeu.nes"])).unwrap().no_audio);
     }
 }

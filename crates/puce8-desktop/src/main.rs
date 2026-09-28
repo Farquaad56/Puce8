@@ -20,7 +20,7 @@ fn main() {
             std::process::exit(1);
         })
     });
-    if let Err(e) = gui::run(nes, args.rom.clone(), args.scale) {
+    if let Err(e) = gui::run(nes, args.rom.clone(), args.scale, !args.no_audio) {
         eprintln!("erreur fenetre : {e}");
         std::process::exit(1);
     }

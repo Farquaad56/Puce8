@@ -5,5 +5,6 @@ pub mod audio;
 pub mod gui;
 pub mod input;
 pub mod overlay;
+pub mod pad_config;
 pub mod sav;
 pub mod viewers;
