@@ -4,6 +4,7 @@
 
 pub mod dmc;
 pub mod envelope;
+pub mod filters;
 pub mod frame_counter;
 pub mod length;
 pub mod mixer;
