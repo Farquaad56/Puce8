@@ -9,6 +9,7 @@ pub mod length;
 pub mod mixer;
 pub mod noise;
 pub mod pulse;
+pub mod resample;
 pub mod sweep;
 pub mod triangle;
 
