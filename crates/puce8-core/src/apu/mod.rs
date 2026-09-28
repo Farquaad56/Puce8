@@ -1,5 +1,5 @@
 //! APU 2A03 : compteurs de longueur, frame counter, $4015 (E30) ; pulses (E31) ; triangle et
-//! bruit (E32) ; DMC (E33).
+//! bruit (E32) ; DMC (E33) ; mixeur, reechantillonnage et filtres (E34).
 // wiki: APU
 
 pub mod dmc;
@@ -15,11 +15,17 @@ pub mod sweep;
 pub mod triangle;
 
 use dmc::Dmc;
+use filters::Filters;
 use frame_counter::FrameCounter;
 use length::LengthCounter;
+use mixer::Mixer;
 use noise::Noise;
 use pulse::Pulse;
+use resample::Resampler;
 use triangle::Triangle;
+
+/// Taux de sortie par defaut (Hz).
+pub const SAMPLE_RATE: u32 = 44_100;
 
 /// APU.
 pub struct Apu {
@@ -35,6 +41,12 @@ pub struct Apu {
     pub noise: Noise,
     /// DMC (E33a3).
     pub dmc: Dmc,
+    /// E34a4 : enregistrer les echantillons (faux par defaut : aucun calcul audio, ex. suite de tests).
+    pub record: bool,
+    mixer: Mixer,
+    resampler: Resampler,
+    filters: Filters,
+    samples: Vec<f32>,
     /// Cycles CPU depuis la mise sous tension.
     cycle: u64,
 }
@@ -59,6 +71,11 @@ impl Apu {
             triangle: Triangle::default(),
             noise: Noise::new(),
             dmc: Dmc::new(),
+            record: false,
+            mixer: Mixer::new(),
+            resampler: Resampler::new(SAMPLE_RATE),
+            filters: Filters::new(SAMPLE_RATE),
+            samples: Vec::new(),
             cycle: 0,
         }
     }
@@ -81,6 +98,23 @@ impl Apu {
         if ev.half {
             self.clock_half();
         }
+        if self.record {
+            let x = self.mixer.mix(self.outputs());
+            if let Some(s) = self.resampler.push(x) {
+                self.samples.push(self.filters.process(s));
+            }
+        }
+    }
+
+    /// Taux de sortie (44 100 Hz par defaut, ou celui du peripherique audio) ; reinitialise les filtres.
+    pub fn set_sample_rate(&mut self, rate: u32) {
+        self.resampler = Resampler::new(rate);
+        self.filters = Filters::new(rate);
+    }
+
+    /// Deplace les echantillons produits (f32 dans [-1, 1]) a la fin de `out`.
+    pub fn drain_samples(&mut self, out: &mut Vec<f32>) {
+        out.append(&mut self.samples);
     }
 
     /// Horloge "quart" : enveloppes et compteur lineaire.
@@ -331,5 +365,34 @@ mod tests {
         assert!(apu.irq_line());
         apu.write_register(0x4015, 0x00); // efface l'IRQ du DMC
         assert!(!apu.irq_line());
+    }
+
+    // ---------- E34a4 ----------
+
+    #[test]
+    fn frequence_apres_filtres() {
+        let mut apu = Apu::new();
+        apu.record = true;
+        apu.write_register(0x4015, 0x01);
+        apu.write_register(0x4000, 0xBF); // duty 50 %, volume constant 15
+        apu.write_register(0x4002, 0xFD); // periode 253 : 440,4 Hz
+        apu.write_register(0x4003, 0x00); // longueur 10 (halt : ne decompte pas)
+        ticks(&mut apu, 1_789_773); // 1 s
+        let mut s = Vec::new();
+        apu.drain_samples(&mut s);
+        assert!((44_099..=44_101).contains(&s.len()), "n = {}", s.len());
+        let fin = &s[8_820..]; // on ignore 0,2 s (filtres)
+        let passages = fin.windows(2).filter(|w| w[0] <= 0.0 && w[1] > 0.0).count();
+        let f = passages as f64 / (fin.len() as f64 / 44_100.0);
+        assert!((f - 440.4).abs() < 4.4, "f = {f}");
+    }
+
+    #[test]
+    fn pas_d_echantillons_sans_record() {
+        let mut apu = Apu::new();
+        ticks(&mut apu, 10_000);
+        let mut s = Vec::new();
+        apu.drain_samples(&mut s);
+        assert!(s.is_empty());
     }
 }
