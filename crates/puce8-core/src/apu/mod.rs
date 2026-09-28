@@ -6,6 +6,7 @@ pub mod dmc;
 pub mod envelope;
 pub mod frame_counter;
 pub mod length;
+pub mod mixer;
 pub mod noise;
 pub mod pulse;
 pub mod sweep;
