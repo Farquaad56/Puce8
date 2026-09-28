@@ -2,6 +2,7 @@ mod capture;
 mod harness;
 mod input_script;
 mod suite;
+mod wav;
 
 use std::env;
 use std::fs;
@@ -92,6 +93,7 @@ fn do_run(args: &[String]) {
     let mut dump_patterns: Option<String> = None;
     let mut dump_nametables: Option<String> = None;
     let mut dump_oam_path: Option<String> = None;
+    let mut wav_path: Option<String> = None; // E34b1
     let mut patterns_palette = puce8_core::debug::ViewPalette::Gray;
 
     let mut i = 0;
@@ -149,6 +151,10 @@ fn do_run(args: &[String]) {
                 };
                 i += 1;
             }
+            "--wav" => {
+                wav_path = Some(out_path(rest, i, "--wav"));
+                i += 1;
+            }
             "--print-hash" => {
                 print_hash = true;
             }
@@ -174,6 +180,7 @@ fn do_run(args: &[String]) {
         die(2, "--trace and --screenshot are incompatible");
     }
     let mut nes = puce8_core::nes::Nes::from_rom(&bytes).expect("valid ROM");
+    nes.bus.apu.record = wav_path.is_some(); // E34b1 : audio calcule seulement si demande
 
     if let Some(ref tp) = trace_path {
         let mut lines: Vec<String> = Vec::new();
@@ -214,6 +221,12 @@ fn do_run(args: &[String]) {
     dump_views(&nes, dump_patterns, dump_nametables, patterns_palette);
     if let Some(p) = dump_oam_path {
         dump_oam(&nes, &p);
+    }
+    if let Some(p) = wav_path {
+        let mut samples = Vec::new();
+        nes.bus.apu.drain_samples(&mut samples);
+        wav::write_wav(&p, &samples, wav::RATE)
+            .unwrap_or_else(|e| die(2, &format!("cannot write {p}: {e}")));
     }
     let r = harness::Resultat {
         rom: rom.to_string(),
@@ -286,10 +299,59 @@ fn do_blarggf8(args: &[String]) {
     process::exit(r.code);
 }
 
+/// E34b1 : `wav-stats <fichier.wav> [--window-ms N]` : RMS par fenetre, zones fortes, energie entre elles.
+fn do_wav_stats(args: &[String]) {
+    let Some(path) = args.get(2) else {
+        die(2, "usage: wav-stats <fichier.wav> [--window-ms N]");
+    };
+    let rest = args.get(3..).unwrap_or(&[]);
+    let mut window_ms: u32 = 50;
+    let mut i = 0;
+    while i < rest.len() {
+        match rest[i].as_str() {
+            "--window-ms" => {
+                window_ms = parse_next(rest, i)
+                    .parse()
+                    .unwrap_or_else(|_| die(2, "bad --window-ms"));
+                i += 1;
+            }
+            _ => die(2, &format!("unknown flag: {}", rest[i])),
+        }
+        i += 1;
+    }
+    let bytes = fs::read(path).unwrap_or_else(|e| die(2, &format!("cannot read {}: {}", path, e)));
+    let (rate, samples) =
+        wav::read_wav(&bytes).unwrap_or_else(|| die(2, "WAV invalide (PCM 16 bits mono attendu)"));
+    let rms = wav::rms_windows(&samples, rate, window_ms.max(1));
+    let r = wav::resume(&rms);
+    let pct = |x: f32| {
+        if r.fort_max > 0.0 {
+            100.0 * x / r.fort_max
+        } else {
+            0.0
+        }
+    };
+    println!(
+        "{} fenetres de {} ms ; {} zone(s) forte(s) ; RMS max = {:.4}",
+        rms.len(),
+        window_ms,
+        r.zones,
+        r.fort_max
+    );
+    println!(
+        "entre les zones : min = {:.4} ; mediane = {:.4} ({:.1} %) ; max = {:.4} ({:.1} %)",
+        r.entre_min,
+        r.entre_mediane,
+        pct(r.entre_mediane),
+        r.entre_max,
+        pct(r.entre_max)
+    );
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
-        eprintln!("usage: puce8-cli <info|run|blargg|blarggf8> ...");
+        eprintln!("usage: puce8-cli <info|run|blargg|blarggf8|suite|wav-stats> ...");
         process::exit(2);
     }
     match args[1].as_str() {
@@ -297,6 +359,7 @@ fn main() {
         "run" => do_run(&args),
         "blargg" => do_blargg(&args),
         "blarggf8" => do_blarggf8(&args),
+        "wav-stats" => do_wav_stats(&args),
         "suite" => {
             let c = suite::do_suite(&args);
             process::exit(c);
