@@ -49,6 +49,8 @@ pub struct Apu {
     samples: Vec<f32>,
     /// Cycles CPU depuis la mise sous tension.
     cycle: u64,
+    /// E35a1 : derniere valeur ecrite dans $4017 (reecrite au reset).
+    last_4017: u8,
 }
 
 impl Default for Apu {
@@ -77,6 +79,7 @@ impl Apu {
             filters: Filters::new(SAMPLE_RATE),
             samples: Vec::new(),
             cycle: 0,
+            last_4017: 0,
         }
     }
 
@@ -145,7 +148,10 @@ impl Apu {
             0x400C..=0x400F => self.noise.write(addr, v),
             0x4010..=0x4013 => self.dmc.write(addr, v),
             0x4015 => self.write_status(v),
-            0x4017 => self.frame.write(v, self.cycle.is_multiple_of(2)),
+            0x4017 => {
+                self.last_4017 = v;
+                self.frame.write(v, self.cycle.is_multiple_of(2));
+            }
             _ => {}
         }
     }
@@ -210,9 +216,11 @@ impl Apu {
         self.dmc.dma_complete(v);
     }
 
-    /// Reset a chaud : $4015 = 0 (le reste en E35).
+    /// Reset a chaud (E35a1) : $4015 = 0, et la derniere valeur de $4017 est reecrite.
     pub fn reset(&mut self) {
         self.write_status(0);
+        self.frame
+            .write(self.last_4017, self.cycle.is_multiple_of(2));
     }
 
     /// Sorties apres compteurs de longueur : [pulse 1, pulse 2, triangle, bruit] (0-15), DMC (0-127).
@@ -394,5 +402,21 @@ mod tests {
         let mut s = Vec::new();
         apu.drain_samples(&mut s);
         assert!(s.is_empty());
+    }
+
+    // ---------- E35a1 ----------
+
+    #[test]
+    fn reset_reecrit_4017() {
+        let mut apu = Apu::new();
+        apu.write_register(0x4017, 0xC0); // mode 5 pas, IRQ inhibee
+        apu.write_register(0x4015, 0x01);
+        apu.write_register(0x4003, 0x08);
+        ticks(&mut apu, 10);
+        apu.frame.five_step = false; // on simule un etat different
+        apu.frame.inhibit = false;
+        apu.reset();
+        assert!(apu.frame.five_step && apu.frame.inhibit); // $C0 reecrit
+        assert_eq!(apu.peek_status() & 0x1F, 0); // $4015 = 0
     }
 }
