@@ -219,6 +219,7 @@ impl Apu {
     /// Reset a chaud (E35a1) : $4015 = 0, et la derniere valeur de $4017 est reecrite.
     pub fn reset(&mut self) {
         self.write_status(0);
+        self.frame.irq = false;
         self.frame
             .write(self.last_4017, self.cycle.is_multiple_of(2));
     }
@@ -418,5 +419,15 @@ mod tests {
         apu.reset();
         assert!(apu.frame.five_step && apu.frame.inhibit); // $C0 reecrit
         assert_eq!(apu.peek_status() & 0x1F, 0); // $4015 = 0
+    }
+
+    #[test]
+    fn reset_efface_irq_trame() {
+        let mut apu = Apu::new();
+        apu.write_register(0x4017, 0x00); // mode 4 pas : IRQ non inhibee
+        ticks(&mut apu, 30_000); // IRQ posee (29 828)
+        assert!(apu.frame.irq);
+        apu.reset();
+        assert!(!apu.frame.irq); // effacee au reset malgre $4017 sans bit I
     }
 }

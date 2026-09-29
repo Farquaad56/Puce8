@@ -17,15 +17,18 @@ pub struct Args {
     pub scale: u32,
     pub headless_frames: Option<u32>,
     pub no_audio: bool,
+    /// Eopt1a : affiche chaque evenement brut de manette et l'ecrit dans `out/pad_debug.txt`.
+    pub pad_debug: bool,
 }
 
-/// `puce8-desktop [rom.nes] [--scale N] [--headless-frames N] [--no-audio]`.
+/// `puce8-desktop [rom.nes] [--scale N] [--headless-frames N] [--no-audio] [--pad-debug]`.
 pub fn parse_args(args: &[String]) -> Result<Args, String> {
     let mut out = Args {
         rom: None,
         scale: 3,
         headless_frames: None,
         no_audio: false,
+        pad_debug: false,
     };
     let mut i = 0;
     while i < args.len() {
@@ -45,6 +48,11 @@ pub fn parse_args(args: &[String]) -> Result<Args, String> {
             }
             "--no-audio" => {
                 out.no_audio = true;
+                i += 1;
+            }
+            // Eopt1a : diagnostic des evenements bruts de manette.
+            "--pad-debug" => {
+                out.pad_debug = true;
                 i += 1;
             }
             a if a.starts_with("--") => return Err(format!("option inconnue : {a}")),
@@ -179,5 +187,13 @@ mod tests {
     fn option_sans_son() {
         assert!(parse_args(&s(&["jeu.nes", "--no-audio"])).unwrap().no_audio);
         assert!(!parse_args(&s(&["jeu.nes"])).unwrap().no_audio);
+    }
+
+    #[test]
+    fn option_pad_debug() {
+        // Eopt1a : --pad-debug active le diagnostic des evenements bruts de manette.
+        let a = parse_args(&s(&["jeu.nes", "--pad-debug"])).unwrap();
+        assert!(a.pad_debug);
+        assert!(!parse_args(&s(&["jeu.nes"])).unwrap().pad_debug);
     }
 }

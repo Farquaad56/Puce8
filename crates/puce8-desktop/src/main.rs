@@ -20,7 +20,8 @@ fn main() {
             std::process::exit(1);
         })
     });
-    if let Err(e) = gui::run(nes, args.rom.clone(), args.scale, !args.no_audio) {
+    // Eopt1a : --pad-debug -> diagnostic des evenements bruts de manette.
+    if let Err(e) = gui::run(nes, args.rom.clone(), args.scale, !args.no_audio, args.pad_debug) {
         eprintln!("erreur fenetre : {e}");
         std::process::exit(1);
     }

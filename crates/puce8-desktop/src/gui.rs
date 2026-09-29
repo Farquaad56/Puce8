@@ -9,6 +9,7 @@ use eframe::egui;
 use puce8_core::nes::Nes;
 use puce8_core::util::fnv1a64;
 use std::collections::{HashMap, VecDeque};
+use std::io::Write;
 use std::time::Instant;
 
 /// Etat de l'application de bureau.
@@ -55,14 +56,41 @@ pub struct Puce8App {
     audio: Option<audio::Audio>,
     sound: bool,
     audio_msg: Option<String>,
+    /// Eopt1a : --pad-debug : fichier out/pad_debug.txt en mode ajout (None : option absente).
+    pad_debug_file: Option<std::fs::File>,
+    /// Eopt1a : manettes dont le nom + uuid a deja ete affiche (demarrage, branchement a chaud).
+    pad_annonces: Vec<gilrs::GamepadId>,
 }
 
 impl Puce8App {
-    pub fn new(nes: Option<Nes>, rom_path: Option<String>, scale: u32, audio_on: bool) -> Self {
+    pub fn new(
+        nes: Option<Nes>,
+        rom_path: Option<String>,
+        scale: u32,
+        audio_on: bool,
+        pad_debug: bool,
+    ) -> Self {
         // E24b2 : un seul contexte gilrs ; en cas d'echec, clavier seul (pas de panique).
         let (gilrs, pad_error) = match gilrs::Gilrs::new() {
             Ok(g) => (Some(g), None),
             Err(e) => (None, Some(format!("manettes indisponibles : {e}"))),
+        };
+        // Eopt1a : --pad-debug : fichier de diagnostic en mode ajout ; echec = message, pas de panique.
+        let pad_debug_file = if pad_debug {
+            match std::fs::create_dir_all("out").and_then(|_| {
+                std::fs::OpenOptions::new()
+                    .append(true)
+                    .create(true)
+                    .open("out/pad_debug.txt")
+            }) {
+                Ok(f) => Some(f),
+                Err(e) => {
+                    eprintln!("pad-debug : impossible d'ouvrir out/pad_debug.txt : {e}");
+                    None
+                }
+            }
+        } else {
+            None
         };
         let rom_name = rom_path.as_deref().map(app::rom_label).unwrap_or_default();
         // E34c2 : echec de cpal -> sans son (message dans la barre d'etat), pas de panique.
@@ -105,6 +133,8 @@ impl Puce8App {
             audio,
             sound: true,
             audio_msg,
+            pad_debug_file,
+            pad_annonces: Vec::new(),
         };
         s.load_sav();
         s.prepare_audio();
@@ -248,6 +278,12 @@ impl Puce8App {
         if let Some(g) = self.gilrs.as_mut() {
             // Branchement / debranchement a chaud, et suivi de l'etat par les evenements.
             while let Some(ev) = g.next_event() {
+                // Eopt1a : --pad-debug : chaque evenement brut est affiche et ecrit dans out/pad_debug.txt.
+                if let Some(f) = self.pad_debug_file.as_mut() {
+                    let ligne = format_pad_event(g.gamepad(ev.id).name(), &ev.event);
+                    println!("{ligne}");
+                    let _ = writeln!(f, "{ligne}");
+                }
                 if self.pads_window {
                     self.pad_log
                         .push_back(format!("{:?} {:?}", ev.id, ev.event));
@@ -304,6 +340,25 @@ impl Puce8App {
             }
             let mut ids: Vec<gilrs::GamepadId> = g.gamepads().map(|(id, _)| id).collect();
             ids.sort_by_key(|id| usize::from(*id));
+            // Eopt1a : --pad-debug : nom + uuid de chaque manette nouvelle (demarrage, branchement a chaud).
+            if self.pad_debug_file.is_some() {
+                for id in &ids {
+                    if !self.pad_annonces.contains(id) {
+                        let gp = g.gamepad(*id);
+                        let ligne = format!(
+                            "manette {} : {} (uuid {})",
+                            usize::from(*id),
+                            gp.name(),
+                            pad_config::pad_key(gp.uuid(), gp.name())
+                        );
+                        println!("{ligne}");
+                        if let Some(f) = self.pad_debug_file.as_mut() {
+                            let _ = writeln!(f, "{ligne}");
+                        }
+                        self.pad_annonces.push(*id);
+                    }
+                }
+            }
             for (n, (slot, id)) in pads.iter_mut().zip(ids).enumerate() {
                 let gp = g.gamepad(id);
                 // E24d : etat brut (codes du peripherique), pour la configuration et l'assistant.
@@ -760,12 +815,23 @@ fn axis_from_gilrs(a: gilrs::Axis) -> Option<input::PadAxis> {
     })
 }
 
+/// Eopt1a : --pad-debug : texte d'un evenement brut de manette (type, code, valeur).
+pub fn format_pad_event(nom: &str, ev: &gilrs::EventType) -> String {
+    match ev {
+        gilrs::EventType::ButtonPressed(_, code) => format!("{nom} : bouton appuye {code:?}"),
+        gilrs::EventType::ButtonReleased(_, code) => format!("{nom} : bouton relache {code:?}"),
+        gilrs::EventType::AxisChanged(_, v, code) => format!("{nom} : axe {v:+.2} {code:?}"),
+        other => format!("{nom} : {other:?}"),
+    }
+}
+
 /// Ouvre la fenetre principale (bloquant jusqu'a la fermeture).
 pub fn run(
     nes: Option<Nes>,
     rom_path: Option<String>,
     scale: u32,
     audio_on: bool,
+    pad_debug: bool,
 ) -> eframe::Result {
     let options = eframe::NativeOptions {
         renderer: eframe::Renderer::Wgpu,
@@ -777,6 +843,19 @@ pub fn run(
     eframe::run_native(
         "Puce8",
         options,
-        Box::new(move |_cc| Ok(Box::new(Puce8App::new(nes, rom_path, scale, audio_on)))),
+        Box::new(move |_cc| Ok(Box::new(Puce8App::new(
+            nes, rom_path, scale, audio_on, pad_debug,
+        )))),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn texte_evenement_manette() {
+        // Eopt1a : sans manette le code brut n'est pas constructible ; on teste la branche generique.
+        assert_eq!(format_pad_event("SFC30", &gilrs::EventType::Connected), "SFC30 : Connected");
+    }
 }
