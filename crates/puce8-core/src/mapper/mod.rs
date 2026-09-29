@@ -115,6 +115,7 @@ pub fn create_mapper(cart: Cartridge) -> Result<Box<dyn Mapper>, RomError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::region::TvSystem;
 
     /// Cartouche synthetique : PRG de 16 Ko nul, CHR donne.
     fn cart(chr_rom: Vec<u8>, chr_ram_size: usize) -> Cartridge {
@@ -128,6 +129,7 @@ mod tests {
             mirroring: Mirroring::Horizontal,
             has_battery: false,
             is_nes2: false,
+            tv_system: TvSystem::Inconnu,
         }
     }
 

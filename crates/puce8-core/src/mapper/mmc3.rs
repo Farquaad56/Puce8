@@ -281,6 +281,7 @@ mod tests {
             mirroring: Mirroring::Vertical,
             has_battery: false,
             is_nes2: false,
+            tv_system: crate::region::TvSystem::Inconnu,
         }
     }
 

@@ -4,6 +4,7 @@
 use std::fmt;
 
 use crate::mapper::Mirroring;
+use crate::region::TvSystem;
 
 const HEADER_SIZE: usize = 16;
 const TRAINER_SIZE: usize = 512;
@@ -52,6 +53,8 @@ pub struct Cartridge {
     pub mirroring: Mirroring,
     pub has_battery: bool,
     pub is_nes2: bool,
+    /// Systeme TV declare dans l'en-tete (Eopt2b).
+    pub tv_system: TvSystem,
 }
 
 /// Taille NES 2.0 codee `64 << n` ; `n = 0` signifie "aucune".
@@ -76,6 +79,9 @@ impl Cartridge {
 
         // wiki: NES_2_0 (Identification) : bits 2-3 de l'octet 7 = 10
         let is_nes2 = (flags7 & 0x0C) == 0x08;
+
+        // wiki: INES (Variant comparison) : en-tete "sale" (ex. "DiskDude!")
+        let dirty = !is_nes2 && header[12..16].iter().any(|&b| b != 0);
 
         let has_trainer = flags6 & 0x04 != 0;
         let has_battery = flags6 & 0x02 != 0;
@@ -104,14 +110,26 @@ impl Cartridge {
             let chr = (usize::from(chr_msb) << 8) | usize::from(header[5]);
             (mapper, header[8] >> 4, prg, chr)
         } else {
-            // wiki: INES (Variant comparison) : en-tete "sale" (ex. "DiskDude!")
-            let dirty = header[12..16].iter().any(|&b| b != 0);
             let mapper = if dirty {
                 u16::from(flags6 >> 4)
             } else {
                 u16::from(flags6 >> 4) | u16::from(flags7 & 0xF0)
             };
             (mapper, 0, usize::from(header[4]), usize::from(header[5]))
+        };
+
+        // wiki: NES_2_0 (Header) : octet 12 bits 0-1 ; wiki: INES : octet 9 bit 0, octet 10 bits 0-1.
+        let tv_system = if is_nes2 {
+            match header[12] & 0x03 {
+                0 => TvSystem::Ntsc,
+                1 => TvSystem::Pal,
+                2 => TvSystem::Multi,
+                _ => TvSystem::Dendy,
+            }
+        } else if !dirty && (header[9] & 0x01 != 0 || header[10] & 0x03 == 0x02) {
+            TvSystem::Pal
+        } else {
+            TvSystem::Inconnu
         };
 
         let prg_size = prg_banks * PRG_BANK_SIZE;
@@ -169,10 +187,11 @@ impl Cartridge {
             mirroring,
             has_battery,
             is_nes2,
+            tv_system,
         })
     }
 
-    /// Resume sur une ligne, ex. `mapper=0 prg=16K chr=8K mir=V bat=0 nes2=0`.
+    /// Resume sur une ligne, ex. `mapper=0 prg=16K chr=8K mir=V bat=0 nes2=0 tv=NTSC`.
     pub fn summary(&self) -> String {
         let chr = if self.chr_rom.is_empty() {
             format!("ram{}K", self.chr_ram_size / 1024)
@@ -187,13 +206,14 @@ impl Cartridge {
             Mirroring::FourScreen => "4",
         };
         format!(
-            "mapper={} prg={}K chr={} mir={} bat={} nes2={}",
+            "mapper={} prg={}K chr={} mir={} bat={} nes2={} tv={}",
             self.mapper_id,
             self.prg_rom.len() / 1024,
             chr,
             mir,
             u8::from(self.has_battery),
-            u8::from(self.is_nes2)
+            u8::from(self.is_nes2),
+            self.tv_system.region().label()
         )
     }
 }
@@ -241,7 +261,10 @@ mod tests {
         assert_eq!(cart.mirroring, Mirroring::Vertical);
         assert_eq!(cart.prg_rom[255], 255);
         assert_eq!(cart.chr_rom[65], 0xC1);
-        assert_eq!(cart.summary(), "mapper=0 prg=16K chr=8K mir=V bat=0 nes2=0");
+        assert_eq!(
+            cart.summary(),
+            "mapper=0 prg=16K chr=8K mir=V bat=0 nes2=0 tv=NTSC"
+        );
     }
 
     #[test]

@@ -8,6 +8,7 @@ use crate::cpu::CpuBus;
 use crate::dma::{DmcDma, OamDma, GET_PARITY};
 use crate::mapper::{create_mapper, Mapper, Mirroring};
 use crate::ppu::Ppu;
+use crate::region::TvSystem;
 
 /// Bus CPU vu par le 6502 : RAM + cartouche + open bus.
 pub struct Bus {
@@ -162,6 +163,7 @@ impl Bus {
             mirroring: Mirroring::Horizontal,
             has_battery: false,
             is_nes2: false,
+            tv_system: TvSystem::Inconnu,
         };
         let mapper = create_mapper(cart).expect("mapper 0 (NROM) est toujours supporte");
         Bus::new(mapper)

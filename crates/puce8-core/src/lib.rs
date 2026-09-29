@@ -8,4 +8,5 @@ pub mod dma;
 pub mod mapper;
 pub mod nes;
 pub mod ppu;
+pub mod region;
 pub mod util;
