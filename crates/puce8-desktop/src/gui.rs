@@ -843,9 +843,11 @@ pub fn run(
     eframe::run_native(
         "Puce8",
         options,
-        Box::new(move |_cc| Ok(Box::new(Puce8App::new(
-            nes, rom_path, scale, audio_on, pad_debug,
-        )))),
+        Box::new(move |_cc| {
+            Ok(Box::new(Puce8App::new(
+                nes, rom_path, scale, audio_on, pad_debug,
+            )))
+        }),
     )
 }
 
@@ -856,6 +858,9 @@ mod tests {
     #[test]
     fn texte_evenement_manette() {
         // Eopt1a : sans manette le code brut n'est pas constructible ; on teste la branche generique.
-        assert_eq!(format_pad_event("SFC30", &gilrs::EventType::Connected), "SFC30 : Connected");
+        assert_eq!(
+            format_pad_event("SFC30", &gilrs::EventType::Connected),
+            "SFC30 : Connected"
+        );
     }
 }
